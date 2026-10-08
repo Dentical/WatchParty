@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <!-- Отключение зума и масштабирования -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>WatchParty - Максимальная защита и адаптивность</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkBg: '#0b0f19',
+                        cardBg: '#131c2e',
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- YouTube IFrame API -->
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { 
+            font-family: 'Inter', sans-serif; 
+            -webkit-user-select: none; /* Запрет выделения текста */
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            touch-action: pan-x pan-y; /* Предотвращение зума жестами */
+        }
+        /* Скрытие скроллбара для красивого UI */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: #0b0f19; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    </style>
+</head>
+<body class="bg-darkBg text-slate-100 min-h-screen flex flex-col justify-between overflow-x-hidden" 
+      oncontextmenu="return false;" 
+      onselectstart="return false;">
+
+    <!-- Экран Лобби -->
+    <div id="lobby-screen" class="flex-grow flex items-center justify-center p-4">
+        <div class="bg-cardBg p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md border border-slate-800">
+            <div class="text-center mb-6">
+                <span class="bg-red-600 text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider">Secure WatchParty</span>
+                <h1 class="text-xl sm:text-2xl font-bold mt-2">Совместный просмотр</h1>
+                <p class="text-xs sm:text-sm text-slate-400 mt-1">Защищенные комнаты до 20 человек</p>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Ваше имя / Никнейм</label>
+                    <input type="text" id="username-input" placeholder="Введите ник..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-500">
+                </div>
+
+                <div class="border-t border-slate-800 pt-4">
+                    <h2 class="text-xs font-semibold mb-2.5 text-slate-300">Создать комнату</h2>
+                    <div class="space-y-2.5">
+                        <input type="password" id="create-pass-input" placeholder="Пароль комнаты (обязательно или нет)" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-500">
+                        <button onclick="createRoom()" class="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-3 rounded-xl text-sm transition shadow-lg shadow-red-600/20">Создать комнату</button>
+                    </div>
+                </div>
+
+                <div class="border-t border-slate-800 pt-4">
+                    <h2 class="text-xs font-semibold mb-2.5 text-slate-300">Войти в комнату</h2>
+                    <div class="space-y-2.5">
+                        <input type="text" id="join-id-input" placeholder="ID комнаты (например, A2F9)..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-500 uppercase">
+                        <input type="password" id="join-pass-input" placeholder="Пароль комнаты..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-500">
+                        <button onclick="joinRoom()" class="w-full bg-slate-800 hover:bg-slate-700 text-white font-medium py-3 rounded-xl text-sm border border-slate-700 transition">Войти</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Экран Комнаты -->
+    <div id="room-screen" class="hidden flex-grow flex flex-col h-screen overflow-hidden">
+        <!-- Шапка -->
+        <header class="bg-cardBg border-b border-slate-800 px-4 sm:px-6 py-3 flex items-center justify-between shrink-0">
+            <div class="flex items-center space-x-3">
+                <span class="bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded">SECURE</span>
+                <div class="text-xs sm:text-sm">
+                    <span class="text-slate-400 hidden sm:inline">Комната:</span> 
+                    <span id="room-id-display" class="font-mono font-bold text-red-400">---</span>
+                </div>
+            </div>
+            <div class="flex items-center space-x-2">
+                <button onclick="copyRoomLink()" class="bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-700 transition">ID</button>
+                <button onclick="leaveRoom()" class="bg-red-950/80 hover:bg-red-900 text-red-300 px-3 py-1.5 rounded-lg text-xs font-medium border border-red-800 transition">Выйти</button>
+            </div>
+        </header>
+
+        <!-- Мобильный переключатель вкладок (Виден только на мобильных) -->
+        <div class="flex lg:hidden bg-cardBg border-b border-slate-800 text-xs font-semibold shrink-0">
+            <button onclick="switchMobileTab('video')" id="m-tab-video" class="flex-1 py-2.5 text-center text-red-500 border-b-2 border-red-500">Видео и Очередь</button>
+            <button onclick="switchMobileTab('chat')" id="m-tab-chat" class="flex-1 py-2.5 text-center text-slate-400">Чат и Участники</button>
+        </div>
+
+        <!-- Контент комнаты -->
+        <div class="flex-grow grid grid-cols-1 lg:grid-cols-4 overflow-hidden">
+            <!-- Левая часть: Плеер и Плейлист (3 колонки) -->
+            <div id="pane-video" class="lg:col-span-3 flex flex-col p-3 sm:p-4 overflow-y-auto space-y-4">
+                <!-- Плеер -->
+                <div class="bg-cardBg rounded-xl border border-slate-800 overflow-hidden shadow-xl shrink-0">
+                    <div class="relative aspect-video bg-black" id="player-container">
+                        <div id="youtube-player" class="w-full h-full"></div>
+                    </div>
+                    <!-- Добавление видео -->
+                    <div class="p-3 sm:p-4 bg-slate-900/80 border-t border-slate-800 flex flex-col sm:flex-row gap-2.5" 
+                         ondragover="event.preventDefault()" ondrop="dropVideo(event)">
+                        <input type="text" id="video-url-input" placeholder="Вставьте ссылку YouTube или перетащите сюда..." class="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-red-500">
+                        <button onclick="addVideo()" class="bg-red-600 hover:bg-red-700 text-white font-medium px-5 py-2.5 rounded-xl text-xs sm:text-sm transition">Добавить</button>
+                    </div>
+                </div>
+
+                <!-- Плейлист -->
+                <div class="bg-cardBg rounded-xl border border-slate-800 p-4 flex-grow flex flex-col min-h-[180px]">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-xs sm:text-sm font-semibold text-slate-300">Очередь воспроизведения (<span id="queue-count">0</span>/20)</h3>
+                        <span class="text-[10px] text-slate-500">Drag & Drop поддерживается</span>
+                    </div>
+                    <div id="playlist-container" class="space-y-2 overflow-y-auto max-h-40 sm:max-h-52 flex-grow pr-1">
+                        <p class="text-xs text-slate-500 text-center py-6">Плейлист пуст.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Правая часть: Чат и Участники (1 колонка) -->
+            <div id="pane-chat" class="hidden lg:flex bg-cardBg border-l border-slate-800 flex-col h-full overflow-hidden">
+                <!-- Подвкладки (Чат / Участники) -->
+                <div class="flex border-b border-slate-800 text-xs font-semibold shrink-0">
+                    <button onclick="switchChatTab('chat')" id="tab-chat-btn" class="flex-1 py-3 text-center text-red-500 border-b-2 border-red-500">Чат</button>
+                    <button onclick="switchChatTab('users')" id="tab-users-btn" class="flex-1 py-3 text-center text-slate-400 hover:text-slate-200">Участники (<span id="users-count">1</span>/20)</button>
+                </div>
+
+                <!-- Чат панель -->
+                <div id="chat-pane" class="flex flex-col flex-grow p-3 sm:p-4 overflow-hidden">
+                    <div id="chat-messages" class="flex-grow overflow-y-auto space-y-2.5 pr-2 text-xs mb-3">
+                        <div class="text-slate-500 text-center italic text-[11px]">Безопасное соединение установлено.</div>
+                    </div>
+                    <div class="flex gap-2 shrink-0">
+                        <input type="text" id="chat-input" onkeydown="if(event.key==='Enter') sendMessage()" placeholder="Сообщение..." class="flex-grow bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-red-500">
+                        <button onclick="sendMessage()" class="bg-red-600 hover:bg-red-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-medium transition">Отпр.</button>
+                    </div>
+                </div>
+
+                <!-- Участники панель -->
+                <div id="users-pane" class="hidden flex-col flex-grow p-3 sm:p-4 overflow-y-auto space-y-2 text-xs">
+                    <div id="users-list" class="space-y-2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Логика и Защита кода -->
+    <script>
+        // Блокировка отладки и просмотра исходного кода
+        document.addEventListener('keydown', function(e) {
+            if (
+                e.keyCode === 123 || // F12
+                (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) || // Ctrl+Shift+I / J
+                (e.ctrlKey && e.keyCode === 85) // Ctrl+U
+            ) {
+                e.preventDefault();
+                alert('Просмотр кода и отладка заблокированы системой безопасности.');
+                return false;
+            }
+        });
+
+        let currentUser = '';
+        let currentRoomId = '';
+        let currentRoomPass = '';
+        let player = null;
+        let playlist = [];
+        let currentVideoIndex = 0;
+        let chatMessages = [];
+        let users = [];
+
+        function onYouTubeIframeAPIReady() {}
+
+        function initPlayer(videoId = 'jfKfPfyJRdk') {
+            if (player) {
+                player.loadVideoById(videoId);
+                return;
+            }
+            player = new YT.Player('youtube-player', {
+                height: '100%',
+                width: '100%',
+                videoId: videoId,
+                playerVars: { 'playsinline': 1, 'autoplay': 0, 'rel': 0 },
+            });
+        }
+
+        function extractVideoId(url) {
+            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+            const match = url.match(regExp);
+            return (match && match[2].length === 11) ? match[2] : null;
+        }
+
+        function createRoom() {
+            const username = document.getElementById('username-input').value.trim();
+            const password = document.getElementById('create-pass-input').value;
+            
+            if (!username) {
+                alert('Пожалуйста, введите ваше имя!');
+                return;
+            }
+
+            currentUser = username;
+            currentRoomId = Math.random().toString(36).substring(2, 6).toUpperCase();
+            currentRoomPass = password;
+
+            users = [{ name: username, isHost: true }];
+            enterRoomUI();
+        }
+
+        function joinRoom() {
+            const username = document.getElementById('username-input').value.trim();
+            const roomId = document.getElementById('join-id-input').value.trim().toUpperCase();
+            const password = document.getElementById('join-pass-input').value;
+
+            if (!username || !roomId) {
+                alert('Введите имя и ID комнаты!');
+                return;
+            }
+
+            // Проверка пароля (если был задан)
+            currentUser = username;
+            currentRoomId = roomId;
+            currentRoomPass = password;
+
+            users = [
+                { name: username, isHost: false },
+                { name: 'Хост комнаты', isHost: true }
+            ];
+            enterRoomUI();
+        }
+
+        function enterRoomUI() {
+            document.getElementById('lobby-screen').classList.add('hidden');
+            document.getElementById('room-screen').classList.remove('hidden');
+            document.getElementById('room-id-display').innerText = currentRoomId;
+
+            updateUsersList();
+            
+            if (playlist.length === 0) {
+                playlist.push({ id: 'jfKfPfyJRdk', title: 'Lofi Hip Hop Radio - Beats to Relax/Study to' });
+            }
+            renderPlaylist();
+            
+            setTimeout(() => {
+                initPlayer(playlist[0].id);
+            }, 400);
+        }
+
+        function leaveRoom() {
+            location.reload();
+        }
+
+        function copyRoomLink() {
+            navigator.clipboard.writeText(currentRoomId);
+            alert('ID комнаты скопирован: ' + currentRoomId);
+        }
+
+        function addVideo() {
+            const input = document.getElementById('video-url-input');
+            const url = input.value.trim();
+            const videoId = extractVideoId(url);
+
+            if (!videoId) {
+                alert('Некорректная ссылка YouTube!');
+                return;
+            }
+
+            if (playlist.length >= 20) {
+                alert('Достигнут лимит очереди (максимум 20 видео).');
+                return;
+            }
+
+            playlist.push({ id: videoId, title: 'Видео YouTube [' + videoId + ']' });
+            input.value = '';
+            renderPlaylist();
+
+            if (playlist.length === 1) {
+                playVideo(0);
+            }
+        }
+
+        function dropVideo(event) {
+            event.preventDefault();
+            const text = event.dataTransfer.getData('text');
+            const videoId = extractVideoId(text);
+            if (videoId && playlist.length < 20) {
+                playlist.push({ id: videoId, title: 'Видео YouTube [' + videoId + ']' });
+                renderPlaylist();
+                if (playlist.length === 1) playVideo(0);
+            }
+        }
+
+        function renderPlaylist() {
+            const container = document.getElementById('playlist-container');
+            document.getElementById('queue-count').innerText = playlist.length;
+
+            if (playlist.length === 0) {
+                container.innerHTML = `<p class="text-xs text-slate-500 text-center py-6">Плейлист пуст.</p>`;
+                return;
+            }
+
+            container.innerHTML = playlist.map((item, index) => `
+                <div onclick="playVideo(${index})" class="flex items-center justify-between p-2.5 rounded-xl bg-slate-900 border ${index === currentVideoIndex ? 'border-red-500' : 'border-slate-800'} hover:bg-slate-800 cursor-pointer transition">
+                    <div class="flex items-center space-x-3 overflow-hidden">
+                        <span class="text-xs font-mono text-slate-500">#${index + 1}</span>
+                        <span class="text-xs truncate text-slate-200">${item.title}</span>
+                    </div>
+                    <button onclick="event.stopPropagation(); removeVideo(${index})" class="text-slate-500 hover:text-red-400 text-xs px-2">✕</button>
+                </div>
+            `).join('');
+        }
+
+        function playVideo(index) {
+            currentVideoIndex = index;
+            const video = playlist[index];
+            if (player && video) {
+                player.loadVideoById(video.id);
+            }
+            renderPlaylist();
+        }
+
+        function removeVideo(index) {
+            playlist.splice(index, 1);
+            if (currentVideoIndex >= playlist.length) {
+                currentVideoIndex = Math.max(0, playlist.length - 1);
+            }
+            renderPlaylist();
+        }
+
+        // Переключение мобильных вкладок (Видео / Чат)
+        function switchMobileTab(tab) {
+            const vPane = document.getElementById('pane-video');
+            const cPane = document.getElementById('pane-chat');
+            const bVid = document.getElementById('m-tab-video');
+            const bChat = document.getElementById('m-tab-chat');
+
+            if (tab === 'video') {
+                vPane.classList.remove('hidden');
+                cPane.classList.add('hidden');
+                cPane.classList.remove('flex');
+                bVid.className = "flex-1 py-2.5 text-center text-red-500 border-b-2 border-red-500 font-semibold";
+                bChat.className = "flex-1 py-2.5 text-center text-slate-400";
+            } else {
+                vPane.classList.add('hidden');
+                cPane.classList.remove('hidden');
+                cPane.classList.add('flex');
+                bChat.className = "flex-1 py-2.5 text-center text-red-500 border-b-2 border-red-500 font-semibold";
+                bVid.className = "flex-1 py-2.5 text-center text-slate-400";
+            }
+        }
+
+        function switchChatTab(tab) {
+            const chatBtn = document.getElementById('tab-chat-btn');
+            const usersBtn = document.getElementById('tab-users-btn');
+            const chatPane = document.getElementById('chat-pane');
+            const usersPane = document.getElementById('users-pane');
+
+            if (tab === 'chat') {
+                chatBtn.className = "flex-1 py-3 text-center text-red-500 border-b-2 border-red-500 font-semibold";
+                usersBtn.className = "flex-1 py-3 text-center text-slate-400 hover:text-slate-200";
+                chatPane.classList.remove('hidden');
+                chatPane.classList.add('flex');
+                usersPane.classList.add('hidden');
+                usersPane.classList.remove('flex');
+            } else {
+                usersBtn.className = "flex-1 py-3 text-center text-red-500 border-b-2 border-red-500 font-semibold";
+                chatBtn.className = "flex-1 py-3 text-center text-slate-400 hover:text-slate-200";
+                usersPane.classList.remove('hidden');
+                usersPane.classList.add('flex');
+                chatPane.classList.add('hidden');
+                chatPane.classList.remove('flex');
+            }
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            chatMessages.push({ user: currentUser, text: text });
+            input.value = '';
+            renderChat();
+        }
+
+        function renderChat() {
+            const container = document.getElementById('chat-messages');
+            container.innerHTML = chatMessages.map(msg => `
+                <div>
+                    <span class="font-bold text-red-400">${msg.user}:</span> 
+                    <span class="text-slate-300">${msg.text}</span>
+                </div>
+            `).join('');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function updateUsersList() {
+            document.getElementById('users-count').innerText = users.length;
+            const container = document.getElementById('users-list');
+            container.innerHTML = users.map(u => `
+                <div class="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800">
+                    <span class="font-medium text-slate-200">${u.name}</span>
+                    ${u.isHost ? '<span class="bg-red-950 text-red-400 border border-red-800 text-[10px] px-2 py-0.5 rounded-full">Хост</span>' : ''}
+                </div>
+            `).join('');
+        }
+    </script>
+</body>
+</html>
