@@ -44,7 +44,6 @@
         window.auth = auth;
         window.dbRefs = { ref, set, get, child, onValue, update, push, remove };
 
-        // Функция входа через Google
         window.loginWithGoogle = async function() {
             try {
                 await signInWithPopup(auth, provider);
@@ -54,13 +53,11 @@
             }
         };
 
-        // Выход из аккаунта
         window.logoutAccount = async function() {
             await signOut(auth);
             location.reload();
         };
 
-        // Отслеживание состояния авторизации (сохраняет сессию при перезагрузке)
         onAuthStateChanged(auth, (user) => {
             const loginBtn = document.getElementById('google-login-btn');
             const userProfile = document.getElementById('user-profile-box');
@@ -107,7 +104,6 @@
 
     <!-- Лобби -->
     <div id="lobby-screen" class="flex-grow flex items-center justify-center p-4 relative">
-        <!-- Кнопка входа через Google в правом верхнем углу -->
         <div class="absolute top-4 right-4">
             <button id="google-login-btn" onclick="loginWithGoogle()" class="bg-white hover:bg-slate-200 text-slate-900 font-medium px-4 py-2 rounded-xl text-xs flex items-center space-x-2 transition shadow-lg">
                 <svg class="w-4 h-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.13 0-5.78-2.11-6.73-4.96H1.19v3.15C3.18 21.31 7.23 24 12 24z"/><path fill="#FBBC05" d="M5.27 14.24c-.25-.72-.38-1.49-.38-2.24s.13-1.52.38-2.24V6.6H1.19C.43 8.13 0 9.87 0 11.7c0 1.83.43 3.57 1.19 5.1l4.08-2.56z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.23 0 3.18 2.69 1.19 6.6l4.08 3.15c.95-2.85 3.6-4.96 6.73-4.96z"/></svg>
@@ -239,6 +235,7 @@
         let player = null;
         let currentPlaylist = [];
         let currentVideoIndex = 0;
+        let isRemoteAction = false;
 
         function onYouTubeIframeAPIReady() {}
 
@@ -251,7 +248,29 @@
                 height: '100%',
                 width: '100%',
                 videoId: videoId,
-                playerVars: { 'playsinline': 1, 'autoplay': 1, 'rel': 0 }
+                playerVars: { 'playsinline': 1, 'autoplay': 1, 'rel': 0 },
+                events: {
+                    'onStateChange': onPlayerStateChange
+                }
+            });
+        }
+
+        // Отслеживание действий хоста с плеером (Play / Pause / Seek)
+        function onPlayerStateChange(event) {
+            if (!isHost || isRemoteAction) return;
+            
+            if (event.data === YT.PlayerState.PLAYING) {
+                updatePlayerStateInFirebase('play', player.getCurrentTime());
+            } else if (event.data === YT.PlayerState.PAUSED) {
+                updatePlayerStateInFirebase('pause', player.getCurrentTime());
+            }
+        }
+
+        async function updatePlayerStateInFirebase(action, time) {
+            await window.dbRefs.update(window.dbRefs.ref(window.db, `rooms/${currentRoomId}/playerState`), {
+                action: action,
+                time: time,
+                timestamp: Date.now()
             });
         }
 
@@ -277,6 +296,7 @@
                 password: password || '',
                 playlist: [{ id: 'jfKfPfyJRdk', title: 'Lofi Hip Hop Radio' }],
                 currentIndex: 0,
+                playerState: { action: 'play', time: 0, timestamp: Date.now() },
                 users: { [window.currentUser.uid]: { name: currentUser, isHost: true } },
                 messages: {}
             });
@@ -355,11 +375,30 @@
                     renderPlaylist();
                 }
 
+                // Синхронизация индекса видео
                 if (data.currentIndex !== undefined && data.currentIndex !== currentVideoIndex) {
                     currentVideoIndex = data.currentIndex;
                     if (currentPlaylist[currentVideoIndex]) {
                         initPlayer(currentPlaylist[currentVideoIndex].id);
                     }
+                }
+
+                // Синхронизация состояния плеера (Play/Pause/Time) для участников
+                if (!isHost && data.playerState && player && typeof player.getPlayerState === 'function') {
+                    isRemoteAction = true;
+                    const state = data.playerState;
+                    
+                    if (Math.abs(player.getCurrentTime() - state.time) > 1.5) {
+                        player.seekTo(state.time, true);
+                    }
+
+                    if (state.action === 'play') {
+                        player.playVideo();
+                    } else if (state.action === 'pause') {
+                        player.pauseVideo();
+                    }
+
+                    setTimeout(() => { isRemoteAction = false; }, 500);
                 }
 
                 if (data.users) {
@@ -404,6 +443,11 @@
             currentList.push({ id: videoId, title: 'Видео [' + videoId + ']' });
             await window.dbRefs.set(playlistRef, currentList);
             input.value = '';
+
+            // Если это первое видео, сразу запускаем его
+            if (currentList.length === 1) {
+                selectVideo(0);
+            }
         }
 
         function dropVideo(event) {
@@ -423,6 +467,9 @@
             if (currentList.length < 20) {
                 currentList.push({ id: videoId, title: 'Видео [' + videoId + ']' });
                 await window.dbRefs.set(playlistRef, currentList);
+                if (currentList.length === 1) {
+                    selectVideo(0);
+                }
             }
         }
 
@@ -449,7 +496,8 @@
         async function selectVideo(index) {
             if (!isHost) return;
             await window.dbRefs.update(window.dbRefs.ref(window.db, `rooms/${currentRoomId}`), {
-                currentIndex: index
+                currentIndex: index,
+                playerState: { action: 'play', time: 0, timestamp: Date.now() }
             });
         }
 
