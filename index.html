@@ -23,7 +23,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js";
-        import { getDatabase, ref, set, get, child, onValue, update, push, remove } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-database.js";
+        import { getDatabase, ref, set, get, child, onValue, update, push, remove, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyDEhRlMKCHpQSnUd0uvdTfUI-43bCXf7oQ",
@@ -42,7 +42,7 @@
 
         window.db = db;
         window.auth = auth;
-        window.dbRefs = { ref, set, get, child, onValue, update, push, remove };
+        window.dbRefs = { ref, set, get, child, onValue, update, push, remove, serverTimestamp };
 
         window.loginWithGoogle = async function() {
             try {
@@ -239,23 +239,22 @@
 
         function onYouTubeIframeAPIReady() {}
 
-        function initPlayer(videoId) {
+        function initPlayer(videoId, seekToTime = 0) {
             if (player) {
-                player.loadVideoById(videoId);
+                player.loadVideoById({videoId: videoId, startSeconds: seekToTime});
                 return;
             }
             player = new YT.Player('youtube-player', {
                 height: '100%',
                 width: '100%',
                 videoId: videoId,
-                playerVars: { 'playsinline': 1, 'autoplay': 1, 'rel': 0 },
+                playerVars: { 'playsinline': 1, 'autoplay': 1, 'rel': 0, 'start': Math.floor(seekToTime) },
                 events: {
                     'onStateChange': onPlayerStateChange
                 }
             });
         }
 
-        // Отслеживание действий хоста с плеером (Play / Pause / Seek)
         function onPlayerStateChange(event) {
             if (!isHost || isRemoteAction) return;
             
@@ -270,7 +269,7 @@
             await window.dbRefs.update(window.dbRefs.ref(window.db, `rooms/${currentRoomId}/playerState`), {
                 action: action,
                 time: time,
-                timestamp: Date.now()
+                serverTime: window.dbRefs.serverTimestamp()
             });
         }
 
@@ -296,7 +295,7 @@
                 password: password || '',
                 playlist: [{ id: 'jfKfPfyJRdk', title: 'Lofi Hip Hop Radio' }],
                 currentIndex: 0,
-                playerState: { action: 'play', time: 0, timestamp: Date.now() },
+                playerState: { action: 'play', time: 0, serverTime: window.dbRefs.serverTimestamp() },
                 users: { [window.currentUser.uid]: { name: currentUser, isHost: true } },
                 messages: {}
             });
@@ -375,30 +374,42 @@
                     renderPlaylist();
                 }
 
-                // Синхронизация индекса видео
                 if (data.currentIndex !== undefined && data.currentIndex !== currentVideoIndex) {
                     currentVideoIndex = data.currentIndex;
-                    if (currentPlaylist[currentVideoIndex]) {
-                        initPlayer(currentPlaylist[currentVideoIndex].id);
-                    }
                 }
 
-                // Синхронизация состояния плеера (Play/Pause/Time) для участников
-                if (!isHost && data.playerState && player && typeof player.getPlayerState === 'function') {
-                    isRemoteAction = true;
+                // Расчет актуальной позиции видео с учетом задержки и опоздания участника
+                if (data.playerState && data.playlist && data.playlist[currentVideoIndex]) {
+                    const videoId = data.playlist[currentVideoIndex].id;
                     const state = data.playerState;
                     
-                    if (Math.abs(player.getCurrentTime() - state.time) > 1.5) {
-                        player.seekTo(state.time, true);
+                    let targetTime = state.time || 0;
+                    if (state.action === 'play' && state.serverTime) {
+                        const elapsedServerTime = (Date.now() - state.serverTime) / 1000;
+                        if (elapsedServerTime > 0 && elapsedServerTime < 7200) {
+                            targetTime += elapsedServerTime;
+                        }
                     }
 
-                    if (state.action === 'play') {
-                        player.playVideo();
-                    } else if (state.action === 'pause') {
-                        player.pauseVideo();
+                    if (!player) {
+                        initPlayer(videoId, targetTime);
+                    } else {
+                        const activeVideoId = player.getVideoData ? player.getVideoData().video_id : null;
+                        if (activeVideoId !== videoId) {
+                            player.loadVideoById({videoId: videoId, startSeconds: targetTime});
+                        } else if (!isHost) {
+                            isRemoteAction = true;
+                            if (Math.abs(player.getCurrentTime() - targetTime) > 2.0) {
+                                player.seekTo(targetTime, true);
+                            }
+                            if (state.action === 'play') {
+                                player.playVideo();
+                            } else if (state.action === 'pause') {
+                                player.pauseVideo();
+                            }
+                            setTimeout(() => { isRemoteAction = false; }, 500);
+                        }
                     }
-
-                    setTimeout(() => { isRemoteAction = false; }, 500);
                 }
 
                 if (data.users) {
@@ -409,10 +420,6 @@
                     renderChat(Object.values(data.messages));
                 }
             });
-
-            setTimeout(() => {
-                initPlayer('jfKfPfyJRdk');
-            }, 500);
         }
 
         function leaveRoom() {
@@ -444,7 +451,6 @@
             await window.dbRefs.set(playlistRef, currentList);
             input.value = '';
 
-            // Если это первое видео, сразу запускаем его
             if (currentList.length === 1) {
                 selectVideo(0);
             }
@@ -497,7 +503,7 @@
             if (!isHost) return;
             await window.dbRefs.update(window.dbRefs.ref(window.db, `rooms/${currentRoomId}`), {
                 currentIndex: index,
-                playerState: { action: 'play', time: 0, timestamp: Date.now() }
+                playerState: { action: 'play', time: 0, serverTime: window.dbRefs.serverTimestamp() }
             });
         }
 
