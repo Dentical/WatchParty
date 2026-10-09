@@ -22,7 +22,7 @@
     <!-- Firebase SDK (v13) с Auth и Realtime Database -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js";
         import { getDatabase, ref, set, get, child, onValue, update, push, remove } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-database.js";
 
         const firebaseConfig = {
@@ -38,17 +38,50 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getDatabase(app);
+        const provider = new GoogleAuthProvider();
 
         window.db = db;
         window.auth = auth;
         window.dbRefs = { ref, set, get, child, onValue, update, push, remove };
 
-        // Автоматический вход через Firebase Auth при загрузке (сохраняет сессию после перезагрузки)
-        signInAnonymously(auth).then((userCredential) => {
-            window.currentUserId = userCredential.user.uid;
-            console.log("Firebase Auth успешен:", window.currentUserId);
-        }).catch((error) => {
-            console.error("Ошибка Firebase Auth:", error);
+        // Функция входа через Google
+        window.loginWithGoogle = async function() {
+            try {
+                await signInWithPopup(auth, provider);
+            } catch (error) {
+                console.error("Ошибка входа:", error);
+                alert("Не удалось войти через Google: " + error.message);
+            }
+        };
+
+        // Выход из аккаунта
+        window.logoutAccount = async function() {
+            await signOut(auth);
+            location.reload();
+        };
+
+        // Отслеживание состояния авторизации (сохраняет сессию при перезагрузке)
+        onAuthStateChanged(auth, (user) => {
+            const loginBtn = document.getElementById('google-login-btn');
+            const userProfile = document.getElementById('user-profile-box');
+            const userNameDisplay = document.getElementById('user-display-name');
+            const usernameInput = document.getElementById('username-input');
+
+            if (user) {
+                window.currentUser = user;
+                if (loginBtn) loginBtn.classList.add('hidden');
+                if (userProfile) userProfile.classList.remove('hidden');
+                if (userNameDisplay) userNameDisplay.innerText = user.displayName || 'Пользователь';
+                if (usernameInput && user.displayName) {
+                    usernameInput.value = user.displayName;
+                    usernameInput.disabled = true;
+                }
+            } else {
+                window.currentUser = null;
+                if (loginBtn) loginBtn.classList.remove('hidden');
+                if (userProfile) userProfile.classList.add('hidden');
+                if (usernameInput) usernameInput.disabled = false;
+            }
         });
     </script>
     <!-- YouTube IFrame API -->
@@ -73,12 +106,24 @@
       onselectstart="return false;">
 
     <!-- Лобби -->
-    <div id="lobby-screen" class="flex-grow flex items-center justify-center p-4">
-        <div class="bg-cardBg p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md border border-slate-800">
+    <div id="lobby-screen" class="flex-grow flex items-center justify-center p-4 relative">
+        <!-- Кнопка входа через Google в правом верхнем углу -->
+        <div class="absolute top-4 right-4">
+            <button id="google-login-btn" onclick="loginWithGoogle()" class="bg-white hover:bg-slate-200 text-slate-900 font-medium px-4 py-2 rounded-xl text-xs flex items-center space-x-2 transition shadow-lg">
+                <svg class="w-4 h-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.13 0-5.78-2.11-6.73-4.96H1.19v3.15C3.18 21.31 7.23 24 12 24z"/><path fill="#FBBC05" d="M5.27 14.24c-.25-.72-.38-1.49-.38-2.24s.13-1.52.38-2.24V6.6H1.19C.43 8.13 0 9.87 0 11.7c0 1.83.43 3.57 1.19 5.1l4.08-2.56z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.23 0 3.18 2.69 1.19 6.6l4.08 3.15c.95-2.85 3.6-4.96 6.73-4.96z"/></svg>
+                <span>Войти в аккаунт</span>
+            </button>
+            <div id="user-profile-box" class="hidden flex items-center space-x-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl">
+                <span id="user-display-name" class="text-xs font-semibold text-slate-200">Аккаунт</span>
+                <button onclick="logoutAccount()" class="text-[10px] text-red-400 hover:underline">Выйти</button>
+            </div>
+        </div>
+
+        <div class="bg-cardBg p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md border border-slate-800 mt-12">
             <div class="text-center mb-6">
                 <span class="bg-red-600 text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider">WatchParty</span>
                 <h1 class="text-xl sm:text-2xl font-bold mt-2">Совместный просмотр</h1>
-                <p class="text-xs sm:text-sm text-slate-400 mt-1">Комнаты до 20 человек с защитой сессии</p>
+                <p class="text-xs sm:text-sm text-slate-400 mt-1">Комнаты до 20 человек</p>
             </div>
 
             <div class="space-y-4">
@@ -134,7 +179,6 @@
                     <div class="relative aspect-video bg-black" id="player-container">
                         <div id="youtube-player" class="w-full h-full"></div>
                     </div>
-                    <!-- Управление только для хоста -->
                     <div id="host-controls-panel" class="p-3 sm:p-4 bg-slate-900/80 border-t border-slate-800 flex flex-col sm:flex-row gap-2.5 hidden" 
                          ondragover="event.preventDefault()" ondrop="dropVideo(event)">
                         <input type="text" id="video-url-input" placeholder="Вставьте ссылку YouTube или перетащите сюда..." class="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-red-500">
@@ -218,12 +262,13 @@
         }
 
         async function createRoom() {
-            const username = document.getElementById('username-input').value.trim();
+            const usernameInput = document.getElementById('username-input').value.trim();
             const password = document.getElementById('create-pass-input').value;
-            if (!username) { alert('Введите ваше имя!'); return; }
-            if (!window.currentUserId) { alert('Инициализация аккаунта, подождите секунду...'); return; }
+            
+            if (!usernameInput) { alert('Введите ваше имя или войдите в аккаунт!'); return; }
+            if (!window.currentUser) { alert('Пожалуйста, войдите в аккаунт через Google сверху!'); return; }
 
-            currentUser = username;
+            currentUser = usernameInput;
             isHost = true;
             currentRoomId = Math.random().toString(36).substring(2, 6).toUpperCase();
 
@@ -232,7 +277,7 @@
                 password: password || '',
                 playlist: [{ id: 'jfKfPfyJRdk', title: 'Lofi Hip Hop Radio' }],
                 currentIndex: 0,
-                users: { [window.currentUserId]: { name: username, isHost: true } },
+                users: { [window.currentUser.uid]: { name: currentUser, isHost: true } },
                 messages: {}
             });
 
@@ -240,11 +285,12 @@
         }
 
         async function joinRoom() {
-            const username = document.getElementById('username-input').value.trim();
+            const usernameInput = document.getElementById('username-input').value.trim();
             const roomId = document.getElementById('join-id-input').value.trim().toUpperCase();
             const password = document.getElementById('join-pass-input').value;
-            if (!username || !roomId) { alert('Введите имя и ID комнаты!'); return; }
-            if (!window.currentUserId) { alert('Инициализация аккаунта, подождите секунду...'); return; }
+
+            if (!usernameInput || !roomId) { alert('Введите имя и ID комнаты!'); return; }
+            if (!window.currentUser) { alert('Пожалуйста, войдите в аккаунт через Google сверху!'); return; }
 
             const roomRef = window.dbRefs.ref(window.db, 'rooms/' + roomId);
             const snapshot = await window.dbRefs.get(roomRef);
@@ -266,12 +312,12 @@
                 return;
             }
 
-            currentUser = username;
+            currentUser = usernameInput;
             isHost = false;
             currentRoomId = roomId;
 
             await window.dbRefs.update(window.dbRefs.ref(window.db, `rooms/${roomId}/users`), {
-                [window.currentUserId]: { name: username, isHost: false }
+                [window.currentUser.uid]: { name: currentUser, isHost: false }
             });
 
             enterRoomUI();
