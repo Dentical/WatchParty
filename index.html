@@ -19,9 +19,10 @@
             }
         }
     </script>
-    <!-- Firebase SDK (v13) с вашими ключами -->
+    <!-- Firebase SDK (v13) с Auth и Realtime Database -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js";
         import { getDatabase, ref, set, get, child, onValue, update, push, remove } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-database.js";
 
         const firebaseConfig = {
@@ -35,11 +36,20 @@
         };
 
         const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
         const db = getDatabase(app);
 
         window.db = db;
+        window.auth = auth;
         window.dbRefs = { ref, set, get, child, onValue, update, push, remove };
-        window.firebaseInitialized = true;
+
+        // Автоматический вход через Firebase Auth при загрузке (сохраняет сессию после перезагрузки)
+        signInAnonymously(auth).then((userCredential) => {
+            window.currentUserId = userCredential.user.uid;
+            console.log("Firebase Auth успешен:", window.currentUserId);
+        }).catch((error) => {
+            console.error("Ошибка Firebase Auth:", error);
+        });
     </script>
     <!-- YouTube IFrame API -->
     <script src="https://www.youtube.com/iframe_api"></script>
@@ -66,9 +76,9 @@
     <div id="lobby-screen" class="flex-grow flex items-center justify-center p-4">
         <div class="bg-cardBg p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md border border-slate-800">
             <div class="text-center mb-6">
-                <span class="bg-red-600 text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider">Host Control Mode</span>
+                <span class="bg-red-600 text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider">WatchParty</span>
                 <h1 class="text-xl sm:text-2xl font-bold mt-2">Совместный просмотр</h1>
-                <p class="text-xs sm:text-sm text-slate-400 mt-1">Только хост управляет видео и плейлистом</p>
+                <p class="text-xs sm:text-sm text-slate-400 mt-1">Комнаты до 20 человек с защитой сессии</p>
             </div>
 
             <div class="space-y-4">
@@ -78,7 +88,7 @@
                 </div>
 
                 <div class="border-t border-slate-800 pt-4">
-                    <h2 class="text-xs font-semibold mb-2.5 text-slate-300">Создать комнату (Вы станете Хостом)</h2>
+                    <h2 class="text-xs font-semibold mb-2.5 text-slate-300">Создать комнату (Вы — Хост)</h2>
                     <div class="space-y-2.5">
                         <input type="password" id="create-pass-input" placeholder="Пароль комнаты (необязательно)" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-500">
                         <button onclick="createRoom()" class="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-3 rounded-xl text-sm transition shadow-lg shadow-red-600/20">Создать комнату</button>
@@ -124,21 +134,21 @@
                     <div class="relative aspect-video bg-black" id="player-container">
                         <div id="youtube-player" class="w-full h-full"></div>
                     </div>
-                    <!-- Панель ввода видео (скрывается для обычных участников) -->
+                    <!-- Управление только для хоста -->
                     <div id="host-controls-panel" class="p-3 sm:p-4 bg-slate-900/80 border-t border-slate-800 flex flex-col sm:flex-row gap-2.5 hidden" 
                          ondragover="event.preventDefault()" ondrop="dropVideo(event)">
                         <input type="text" id="video-url-input" placeholder="Вставьте ссылку YouTube или перетащите сюда..." class="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-red-500">
                         <button onclick="addVideo()" class="bg-red-600 hover:bg-red-700 text-white font-medium px-5 py-2.5 rounded-xl text-xs sm:text-sm transition">Добавить</button>
                     </div>
                     <div id="guest-notice" class="p-3 bg-slate-900/80 border-t border-slate-800 text-center text-xs text-slate-400">
-                        Видео и плейлистом управляет Хост комнаты. Вы можете смотреть и общаться в чате!
+                        Плейлистом и видео управляет Хост комнаты.
                     </div>
                 </div>
 
                 <div class="bg-cardBg rounded-xl border border-slate-800 p-4 flex-grow flex flex-col min-h-[180px]">
                     <div class="flex items-center justify-between mb-3">
                         <h3 class="text-xs sm:text-sm font-semibold text-slate-300">Очередь воспроизведения (<span id="queue-count">0</span>/20)</h3>
-                        <span id="queue-subtitle" class="text-[10px] text-slate-500">Только для хоста</span>
+                        <span class="text-[10px] text-slate-500">Синхронизировано</span>
                     </div>
                     <div id="playlist-container" class="space-y-2 overflow-y-auto max-h-40 sm:max-h-52 flex-grow pr-1">
                         <p class="text-xs text-slate-500 text-center py-6">Плейлист пуст.</p>
@@ -154,7 +164,7 @@
 
                 <div id="chat-pane" class="flex flex-col flex-grow p-3 sm:p-4 overflow-hidden">
                     <div id="chat-messages" class="flex-grow overflow-y-auto space-y-2.5 pr-2 text-xs mb-3">
-                        <div class="text-slate-500 text-center italic text-[11px]">Подключено к Firebase.</div>
+                        <div class="text-slate-500 text-center italic text-[11px]">Безопасное соединение установлено.</div>
                     </div>
                     <div class="flex gap-2 shrink-0">
                         <input type="text" id="chat-input" onkeydown="if(event.key==='Enter') sendMessage()" placeholder="Сообщение..." class="flex-grow bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-red-500">
@@ -169,7 +179,7 @@
         </div>
     </div>
 
-    <!-- Логика приложения -->
+    <!-- Клиентская логика -->
     <script>
         document.addEventListener('keydown', function(e) {
             if (e.keyCode === 123 || (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) || (e.ctrlKey && e.keyCode === 85)) {
@@ -185,7 +195,6 @@
         let player = null;
         let currentPlaylist = [];
         let currentVideoIndex = 0;
-        let myUserId = 'u_' + Math.random().toString(36).substring(2, 9);
 
         function onYouTubeIframeAPIReady() {}
 
@@ -212,6 +221,7 @@
             const username = document.getElementById('username-input').value.trim();
             const password = document.getElementById('create-pass-input').value;
             if (!username) { alert('Введите ваше имя!'); return; }
+            if (!window.currentUserId) { alert('Инициализация аккаунта, подождите секунду...'); return; }
 
             currentUser = username;
             isHost = true;
@@ -222,7 +232,7 @@
                 password: password || '',
                 playlist: [{ id: 'jfKfPfyJRdk', title: 'Lofi Hip Hop Radio' }],
                 currentIndex: 0,
-                users: { [myUserId]: { name: username, isHost: true } },
+                users: { [window.currentUserId]: { name: username, isHost: true } },
                 messages: {}
             });
 
@@ -234,6 +244,7 @@
             const roomId = document.getElementById('join-id-input').value.trim().toUpperCase();
             const password = document.getElementById('join-pass-input').value;
             if (!username || !roomId) { alert('Введите имя и ID комнаты!'); return; }
+            if (!window.currentUserId) { alert('Инициализация аккаунта, подождите секунду...'); return; }
 
             const roomRef = window.dbRefs.ref(window.db, 'rooms/' + roomId);
             const snapshot = await window.dbRefs.get(roomRef);
@@ -260,7 +271,7 @@
             currentRoomId = roomId;
 
             await window.dbRefs.update(window.dbRefs.ref(window.db, `rooms/${roomId}/users`), {
-                [myUserId]: { name: username, isHost: false }
+                [window.currentUserId]: { name: username, isHost: false }
             });
 
             enterRoomUI();
@@ -271,7 +282,6 @@
             document.getElementById('room-screen').classList.remove('hidden');
             document.getElementById('room-id-display').innerText = currentRoomId;
 
-            // Настройка прав интерфейса для хоста / участника
             const badge = document.getElementById('role-badge');
             const hostPanel = document.getElementById('host-controls-panel');
             const guestNotice = document.getElementById('guest-notice');
