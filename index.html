@@ -23,7 +23,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js";
-        import { getDatabase, ref, set, get, child, onValue, update, push, remove, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-database.js";
+        import { getDatabase, ref, set, get, child, onValue, update, push, remove, serverTimestamp, onDisconnect } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyDEhRlMKCHpQSnUd0uvdTfUI-43bCXf7oQ",
@@ -42,7 +42,7 @@
 
         window.db = db;
         window.auth = auth;
-        window.dbRefs = { ref, set, get, child, onValue, update, push, remove, serverTimestamp };
+        window.dbRefs = { ref, set, get, child, onValue, update, push, remove, serverTimestamp, onDisconnect };
 
         window.loginWithGoogle = async function() {
             try {
@@ -131,6 +131,7 @@
                 <div class="border-t border-slate-800 pt-4">
                     <h2 class="text-xs font-semibold mb-2.5 text-slate-300">Создать комнату (Вы — Хост)</h2>
                     <div class="space-y-2.5">
+                        <input type="text" id="room-title-input" placeholder="Название фильма / видео..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-500">
                         <input type="password" id="create-pass-input" placeholder="Пароль комнаты (необязательно)" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-500">
                         <button onclick="createRoom()" class="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-3 rounded-xl text-sm transition shadow-lg shadow-red-600/20">Создать комнату</button>
                     </div>
@@ -153,8 +154,12 @@
         <header class="bg-cardBg border-b border-slate-800 px-4 sm:px-6 py-3 flex items-center justify-between shrink-0">
             <div class="flex items-center space-x-3">
                 <span id="role-badge" class="bg-blue-600 text-white text-[10px] font-bold px-2 py-1 rounded">УЧАСТНИК</span>
+                <div class="text-xs sm:text-sm truncate max-w-[150px] sm:max-w-xs">
+                    <span class="text-slate-400 hidden sm:inline">Фильм:</span> 
+                    <span id="room-title-display" class="font-bold text-slate-200">---</span>
+                </div>
                 <div class="text-xs sm:text-sm">
-                    <span class="text-slate-400 hidden sm:inline">Комната:</span> 
+                    <span class="text-slate-400 hidden sm:inline">ID:</span> 
                     <span id="room-id-display" class="font-mono font-bold text-red-400">---</span>
                 </div>
             </div>
@@ -164,9 +169,13 @@
             </div>
         </header>
 
+        <!-- Мобильные вкладки -->
         <div class="flex lg:hidden bg-cardBg border-b border-slate-800 text-xs font-semibold shrink-0">
             <button onclick="switchMobileTab('video')" id="m-tab-video" class="flex-1 py-2.5 text-center text-red-500 border-b-2 border-red-500">Видео и Очередь</button>
-            <button onclick="switchMobileTab('chat')" id="m-tab-chat" class="flex-1 py-2.5 text-center text-slate-400">Чат и Участники</button>
+            <button onclick="switchMobileTab('chat')" id="m-tab-chat" class="flex-1 py-2.5 text-center text-slate-400 relative">
+                Чат и Участники
+                <span id="chat-badge" class="hidden absolute top-1.5 right-4 bg-red-600 text-white text-[9px] px-1.5 py-0.2 rounded-full font-bold">1</span>
+            </button>
         </div>
 
         <div class="flex-grow grid grid-cols-1 lg:grid-cols-4 overflow-hidden">
@@ -236,6 +245,8 @@
         let currentPlaylist = [];
         let currentVideoIndex = 0;
         let isRemoteAction = false;
+        let unreadMessages = 0;
+        let activeMobileTabName = 'video';
 
         function onYouTubeIframeAPIReady() {}
 
@@ -281,6 +292,7 @@
 
         async function createRoom() {
             const usernameInput = document.getElementById('username-input').value.trim();
+            const roomTitle = document.getElementById('room-title-input').value.trim() || 'Совместный просмотр';
             const password = document.getElementById('create-pass-input').value;
             
             if (!usernameInput) { alert('Введите ваше имя или войдите в аккаунт!'); return; }
@@ -291,7 +303,12 @@
             currentRoomId = Math.random().toString(36).substring(2, 6).toUpperCase();
 
             const roomRef = window.dbRefs.ref(window.db, 'rooms/' + currentRoomId);
+            
+            // Автоматическое удаление комнаты при закрытии вкладки хоста
+            window.dbRefs.onDisconnect(roomRef).remove();
+
             await window.dbRefs.set(roomRef, {
+                title: roomTitle,
                 password: password || '',
                 playlist: [{ id: 'jfKfPfyJRdk', title: 'Lofi Hip Hop Radio' }],
                 currentIndex: 0,
@@ -300,7 +317,7 @@
                 messages: {}
             });
 
-            enterRoomUI();
+            enterRoomUI(roomTitle);
         }
 
         async function joinRoom() {
@@ -315,7 +332,7 @@
             const snapshot = await window.dbRefs.get(roomRef);
 
             if (!snapshot.exists()) {
-                alert('Комната не найдена!');
+                alert('Комната не найдена или была закрыта хостом!');
                 return;
             }
 
@@ -339,13 +356,14 @@
                 [window.currentUser.uid]: { name: currentUser, isHost: false }
             });
 
-            enterRoomUI();
+            enterRoomUI(roomData.title || 'Совместный просмотр');
         }
 
-        function enterRoomUI() {
+        function enterRoomUI(roomTitle) {
             document.getElementById('lobby-screen').classList.add('hidden');
             document.getElementById('room-screen').classList.remove('hidden');
             document.getElementById('room-id-display').innerText = currentRoomId;
+            document.getElementById('room-title-display').innerText = roomTitle;
 
             const badge = document.getElementById('role-badge');
             const hostPanel = document.getElementById('host-controls-panel');
@@ -367,7 +385,13 @@
             
             window.dbRefs.onValue(roomRef, (snapshot) => {
                 const data = snapshot.val();
-                if (!data) return;
+                
+                // Проверка: если хост закрыл комнату или удалил данные
+                if (!data) {
+                    alert("Хостинг закрыл комнату");
+                    location.reload();
+                    return;
+                }
 
                 if (data.playlist) {
                     currentPlaylist = Object.values(data.playlist);
@@ -378,7 +402,6 @@
                     currentVideoIndex = data.currentIndex;
                 }
 
-                // Расчет актуальной позиции видео с учетом задержки и опоздания участника
                 if (data.playerState && data.playlist && data.playlist[currentVideoIndex]) {
                     const videoId = data.playlist[currentVideoIndex].id;
                     const state = data.playerState;
@@ -422,7 +445,12 @@
             });
         }
 
-        function leaveRoom() {
+        async function leaveRoom() {
+            if (isHost && currentRoomId) {
+                // Если хост выходит, удаляем всю комнату из базы
+                const roomRef = window.dbRefs.ref(window.db, 'rooms/' + currentRoomId);
+                await window.dbRefs.remove(roomRef);
+            }
             location.reload();
         }
 
@@ -538,6 +566,14 @@
                 </div>
             `).join('');
             container.scrollTop = container.scrollHeight;
+
+            // Если пользователь на мобилке и сидит во вкладке видео, увеличиваем счетчик непрочитанных (1)
+            if (activeMobileTabName === 'video' && messages.length > 0) {
+                unreadMessages++;
+                const badge = document.getElementById('chat-badge');
+                badge.innerText = unreadMessages;
+                badge.classList.remove('hidden');
+            }
         }
 
         function updateUsersList(users) {
@@ -552,6 +588,7 @@
         }
 
         function switchMobileTab(tab) {
+            activeMobileTabName = tab;
             const vPane = document.getElementById('pane-video');
             const cPane = document.getElementById('pane-chat');
             const bVid = document.getElementById('m-tab-video');
@@ -562,13 +599,17 @@
                 cPane.classList.add('hidden');
                 cPane.classList.remove('flex');
                 bVid.className = "flex-1 py-2.5 text-center text-red-500 border-b-2 border-red-500 font-semibold";
-                bChat.className = "flex-1 py-2.5 text-center text-slate-400";
+                bChat.className = "flex-1 py-2.5 text-center text-slate-400 relative";
             } else {
                 vPane.classList.add('hidden');
                 cPane.classList.remove('hidden');
                 cPane.classList.add('flex');
-                bChat.className = "flex-1 py-2.5 text-center text-red-500 border-b-2 border-red-500 font-semibold";
+                bChat.className = "flex-1 py-2.5 text-center text-red-500 border-b-2 border-red-500 font-semibold relative";
                 bVid.className = "flex-1 py-2.5 text-center text-slate-400";
+                
+                // Сбрасываем счетчик непрочитанных при открытии чата
+                unreadMessages = 0;
+                document.getElementById('chat-badge').classList.add('hidden');
             }
         }
 
