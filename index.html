@@ -206,8 +206,6 @@
                 <div class="bg-cardBg rounded-xl border border-slate-800 overflow-hidden shadow-xl shrink-0 transition-colors">
                     <div class="relative aspect-video bg-black flex items-center justify-center" id="player-container">
                         <div id="youtube-player" class="w-full h-full absolute inset-0"></div>
-                        <!-- Прозрачная накладка блокирует управление для участников, чтобы они не могли переключать паузу самостоятельно -->
-                        <div id="guest-player-blocker" class="absolute inset-0 z-10 hidden"></div>
                     </div>
                     <div id="host-controls-panel" class="p-3 sm:p-4 bg-slate-900/80 border-t border-slate-800 flex flex-col sm:flex-row gap-2.5 hidden">
                         <input type="text" id="video-url-input" placeholder="Вставьте ссылку на YouTube (например, https://youtu.be/...)..." class="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-red-500 text-slate-100">
@@ -221,7 +219,7 @@
                 <div class="bg-cardBg rounded-xl border border-slate-800 p-4 flex-grow flex flex-col min-h-[180px] transition-colors">
                     <div class="flex items-center justify-between mb-3">
                         <h3 class="text-xs sm:text-sm font-semibold text-slate-300">Очередь воспроизведения (<span id="queue-count">0</span>/20)</h3>
-                        <span class="text-[10px] text-slate-500">Strict Sync</span>
+                        <span class="text-[10px] text-slate-500">YouTube Sync</span>
                     </div>
                     <div id="playlist-container" class="space-y-2 overflow-y-auto max-h-40 sm:max-h-52 flex-grow pr-1">
                         <p class="text-xs text-slate-500 text-center py-6">Плейлист пуст.</p>
@@ -374,7 +372,7 @@
                 height: '100%',
                 width: '100%',
                 videoId: 'jfKfPfyJRdk',
-                playerVars: { 'playsinline': 1, 'autoplay': 1, 'rel': 0 },
+                playerVars: { 'playsinline': 1, 'controls': 1, 'rel': 0 },
                 events: {
                     'onReady': (event) => {
                         isPlayerReady = true;
@@ -405,7 +403,6 @@
         }
 
         function onYTPlayerStateChange(event) {
-            // Только хост управляет и записывает действия в базу
             if (!isHost || isSyncing) return;
 
             let action = 'pause';
@@ -446,7 +443,7 @@
                 title: roomTitle, password: password || '',
                 playlist: [{ id: 'jfKfPfyJRdk', title: 'Lofi Hip Hop Radio' }],
                 currentIndex: 0,
-                playerState: { action: 'play', time: 0, serverTime: window.dbRefs.serverTimestamp() },
+                playerState: { action: 'pause', time: 0, serverTime: window.dbRefs.serverTimestamp() },
                 users: { [window.currentUser.uid]: { name: currentUser, isHost: true } },
                 messages: {}
             });
@@ -490,13 +487,11 @@
                 badge.innerText = "ХОСТ";
                 document.getElementById('host-controls-panel').classList.remove('hidden');
                 document.getElementById('guest-notice').classList.add('hidden');
-                document.getElementById('guest-player-blocker').classList.add('hidden');
             } else {
                 badge.className = "bg-blue-600 text-white text-[10px] font-bold px-2 py-1 rounded";
                 badge.innerText = "УЧАСТНИК";
                 document.getElementById('host-controls-panel').classList.add('hidden');
                 document.getElementById('guest-notice').classList.remove('hidden');
-                document.getElementById('guest-player-blocker').classList.remove('hidden'); // Блокируем клики для гостей
             }
 
             const roomRef = window.dbRefs.ref(window.db, 'rooms/' + currentRoomId);
@@ -514,7 +509,6 @@
                     const videoItem = data.playlist[currentVideoIndex];
                     const state = data.playerState;
 
-                    // Вычисляем актуальное время с учетом прошедших секунд
                     let targetTime = state.time || 0;
                     if (state.action === 'play' && state.serverTime) {
                         const elapsed = (Date.now() - state.serverTime) / 1000;
@@ -527,7 +521,7 @@
                     if (currentId !== videoItem.id) {
                         ytPlayer.loadVideoById({ videoId: videoItem.id, startSeconds: targetTime });
                     } else {
-                        if (Math.abs(ytPlayer.getCurrentTime() - targetTime) > 2.0) {
+                        if (Math.abs(ytPlayer.getCurrentTime() - targetTime) > 2.5) {
                             ytPlayer.seekTo(targetTime, true);
                         }
                         if (state.action === 'play') {
@@ -686,7 +680,7 @@
                 vPane.classList.remove('hidden');
                 cPane.classList.add('hidden');
                 cPane.classList.remove('flex');
-                bVid.className = "flex-1 py.5 text-center text-red-500 border-b-2 border-red-500 font-semibold";
+                bVid.className = "flex-1 py-2.5 text-center text-red-500 border-b-2 border-red-500 font-semibold";
                 bChat.className = "flex-1 py-2.5 text-center text-slate-400 relative";
             } else {
                 vPane.classList.add('hidden');
