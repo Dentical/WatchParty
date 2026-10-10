@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>WatchParty - Совместный просмотр</title>
+    <title>WatchParty - Совместный просмотр YouTube</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -133,7 +133,7 @@
 
         <div id="lobby-card" class="bg-cardBg p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md border border-slate-800 mt-12 transition-colors">
             <div class="text-center mb-6">
-                <span class="bg-red-600 text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider">WatchParty</span>
+                <span class="bg-red-600 text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider">YouTube WatchParty</span>
                 <h1 class="text-xl sm:text-2xl font-bold mt-2">Совместный просмотр</h1>
                 <p class="text-xs sm:text-sm text-slate-400 mt-1">Комнаты до 20 человек</p>
             </div>
@@ -179,7 +179,7 @@
             <div class="flex items-center space-x-3">
                 <span id="role-badge" class="bg-blue-600 text-white text-[10px] font-bold px-2 py-1 rounded">УЧАСТНИК</span>
                 <div class="text-xs sm:text-sm truncate max-w-[150px] sm:max-w-xs">
-                    <span class="text-slate-400 hidden sm:inline">Фильм:</span> 
+                    <span class="text-slate-400 hidden sm:inline">Видео:</span> 
                     <span id="room-title-display" class="font-bold">---</span>
                 </div>
                 <div class="text-xs sm:text-sm">
@@ -206,11 +206,9 @@
                 <div class="bg-cardBg rounded-xl border border-slate-800 overflow-hidden shadow-xl shrink-0 transition-colors">
                     <div class="relative aspect-video bg-black flex items-center justify-center" id="player-container">
                         <div id="youtube-player" class="w-full h-full absolute inset-0"></div>
-                        <video id="html5-player" class="w-full h-full absolute inset-0 object-contain hidden" controls playsinline></video>
                     </div>
-                    <div id="host-controls-panel" class="p-3 sm:p-4 bg-slate-900/80 border-t border-slate-800 flex flex-col sm:flex-row gap-2.5 hidden" 
-                         ondragover="event.preventDefault()" ondrop="dropVideo(event)">
-                        <input type="text" id="video-url-input" placeholder="Вставьте ссылку на YouTube или любую прямую видеоссылку..." class="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-red-500 text-slate-100">
+                    <div id="host-controls-panel" class="p-3 sm:p-4 bg-slate-900/80 border-t border-slate-800 flex flex-col sm:flex-row gap-2.5 hidden">
+                        <input type="text" id="video-url-input" placeholder="Вставьте ссылку на YouTube (например, https://youtu.be/...)..." class="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-red-500 text-slate-100">
                         <button onclick="addVideo()" class="bg-red-600 hover:bg-red-700 text-white font-medium px-5 py-2.5 rounded-xl text-xs sm:text-sm transition">Добавить</button>
                     </div>
                     <div id="guest-notice" class="p-3 bg-slate-900/80 border-t border-slate-800 text-center text-xs text-slate-400">
@@ -221,7 +219,7 @@
                 <div class="bg-cardBg rounded-xl border border-slate-800 p-4 flex-grow flex flex-col min-h-[180px] transition-colors">
                     <div class="flex items-center justify-between mb-3">
                         <h3 class="text-xs sm:text-sm font-semibold text-slate-300">Очередь воспроизведения (<span id="queue-count">0</span>/20)</h3>
-                        <span class="text-[10px] text-slate-500">Синхронизировано</span>
+                        <span class="text-[10px] text-slate-500">YouTube Sync</span>
                     </div>
                     <div id="playlist-container" class="space-y-2 overflow-y-auto max-h-40 sm:max-h-52 flex-grow pr-1">
                         <p class="text-xs text-slate-500 text-center py-6">Плейлист пуст.</p>
@@ -370,53 +368,21 @@
 
         function onYouTubeIframeAPIReady() {}
 
-        // Умное определение типа ссылки (YouTube или прямая ссылка на видео)
-        function parseVideoSource(url) {
+        function parseYouTubeId(url) {
             const ytRegExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
             const match = url.match(ytRegExp);
-            if (match && match[2].length === 11) {
-                return { type: 'youtube', id: match[2] };
-            }
-            // Если это прямая ссылка на видеофайл (.mp4, .webm, .ogg, .mov и т.д.) или любая другая ссылка
-            return { type: 'html5', url: url };
+            return (match && match[2].length === 11) ? match[2] : null;
         }
 
-        function playVideoItem(sourceObj, seekToTime = 0) {
-            const ytDiv = document.getElementById('youtube-player');
-            const html5Video = document.getElementById('html5-player');
-
-            if (sourceObj.type === 'youtube') {
-                html5Video.classList.add('hidden');
-                html5Video.pause();
-                ytDiv.classList.remove('hidden');
-
-                if (ytPlayer && typeof ytPlayer.loadVideoById === 'function') {
-                    ytPlayer.loadVideoById({ videoId: sourceObj.id, startSeconds: seekToTime });
-                } else {
-                    ytPlayer = new YT.Player('youtube-player', {
-                        height: '100%', width: '100%', videoId: sourceObj.id,
-                        playerVars: { 'playsinline': 1, 'autoplay': 1, 'rel': 0, 'start': Math.floor(seekToTime) },
-                        events: { 'onStateChange': onYTPlayerStateChange }
-                    });
-                }
+        function playYouTubeVideo(videoId, seekToTime = 0) {
+            if (ytPlayer && typeof ytPlayer.loadVideoById === 'function') {
+                ytPlayer.loadVideoById({ videoId: videoId, startSeconds: seekToTime });
             } else {
-                ytDiv.classList.add('hidden');
-                html5Video.classList.remove('hidden');
-                if (html5Video.src !== sourceObj.url) {
-                    html5Video.src = sourceObj.url;
-                }
-                html5Video.currentTime = seekToTime;
-                html5Video.play().catch(e => console.log("Autoplay blocked:", e));
-
-                // События для HTML5 плеера
-                html5Video.onplay = () => {
-                    if (!isHost || isRemoteAction) return;
-                    updatePlayerStateInFirebase('play', html5Video.currentTime);
-                };
-                html5Video.onpause = () => {
-                    if (!isHost || isRemoteAction) return;
-                    updatePlayerStateInFirebase('pause', html5Video.currentTime);
-                };
+                ytPlayer = new YT.Player('youtube-player', {
+                    height: '100%', width: '100%', videoId: videoId,
+                    playerVars: { 'playsinline': 1, 'autoplay': 1, 'rel': 0, 'start': Math.floor(seekToTime) },
+                    events: { 'onStateChange': onYTPlayerStateChange }
+                });
             }
         }
 
@@ -437,7 +403,7 @@
 
         async function createRoom() {
             const usernameInput = document.getElementById('username-input').value.trim();
-            const roomTitle = document.getElementById('room-title-input').value.trim() || 'Совместный просмотр';
+            const roomTitle = document.getElementById('room-title-input').value.trim() || 'YouTube Просмотр';
             const password = document.getElementById('create-pass-input').value;
             
             if (!usernameInput) { alert('Введите имя!'); return; }
@@ -450,11 +416,9 @@
             const roomRef = window.dbRefs.ref(window.db, 'rooms/' + currentRoomId);
             window.dbRefs.onDisconnect(roomRef).remove();
 
-            const defaultSource = parseVideoSource('https://www.youtube.com/watch?v=jfKfPfyJRdk');
-
             await window.dbRefs.set(roomRef, {
                 title: roomTitle, password: password || '',
-                playlist: [{ source: defaultSource, title: 'Lofi Hip Hop Radio' }],
+                playlist: [{ id: 'jfKfPfyJRdk', title: 'Lofi Hip Hop Radio' }],
                 currentIndex: 0,
                 playerState: { action: 'play', time: 0, serverTime: window.dbRefs.serverTimestamp() },
                 users: { [window.currentUser.uid]: { name: currentUser, isHost: true } },
@@ -485,7 +449,7 @@
             await window.dbRefs.update(window.dbRefs.ref(window.db, `rooms/${roomId}/users`), {
                 [window.currentUser.uid]: { name: currentUser, isHost: false }
             });
-            enterRoomUI(roomData.title || 'Совместный просмотр');
+            enterRoomUI(roomData.title || 'YouTube Просмотр');
         }
 
         function enterRoomUI(roomTitle) {
@@ -527,19 +491,17 @@
                         if (elapsed > 0 && elapsed < 7200) targetTime += elapsed;
                     }
 
-                    playVideoItem(videoItem.source, targetTime);
+                    playYouTubeVideo(videoItem.id, targetTime);
 
                     if (!isHost) {
                         isRemoteAction = true;
-                        const html5Video = document.getElementById('html5-player');
-                        if (videoItem.source.type === 'youtube' && ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
-                            if (Math.abs(ytPlayer.getCurrentTime() - targetTime) > 2.0) ytPlayer.seekTo(targetTime, true);
+                        if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
+                            if (Math.abs(ytPlayer.getCurrentTime() - targetTime) > 3.0) {
+                                ytPlayer.seekTo(targetTime, true);
+                            }
                             if (state.action === 'play') ytPlayer.playVideo(); else ytPlayer.pauseVideo();
-                        } else if (videoItem.source.type === 'html5') {
-                            if (Math.abs(html5Video.currentTime - targetTime) > 2.0) html5Video.currentTime = targetTime;
-                            if (state.action === 'play') html5Video.play(); else html5Video.pause();
                         }
-                        setTimeout(() => { isRemoteAction = false; }, 500);
+                        setTimeout(() => { isRemoteAction = false; }, 800);
                     }
                 }
                 if (data.users) updateUsersList(Object.values(data.users));
@@ -561,38 +523,19 @@
             if (!isHost) return;
             const input = document.getElementById('video-url-input');
             const rawUrl = input.value.trim();
-            if (!rawUrl) { alert('Введите ссылку на видео!'); return; }
+            const ytId = parseYouTubeId(rawUrl);
 
-            const source = parseVideoSource(rawUrl);
+            if (!ytId) { alert('Введите корректную ссылку на YouTube!'); return; }
 
             const playlistRef = window.dbRefs.ref(window.db, `rooms/${currentRoomId}/playlist`);
             const snapshot = await window.dbRefs.get(playlistRef);
             const list = snapshot.exists() ? Object.values(snapshot.val()) : [];
             if (list.length >= 20) { alert('Лимит 20 видео.'); return; }
 
-            list.push({ source: source, title: 'Видео [' + (list.length + 1) + ']' });
+            list.push({ id: ytId, title: 'YouTube Ролик [' + (list.length + 1) + ']' });
             await window.dbRefs.set(playlistRef, list);
             input.value = '';
             if (list.length === 1) selectVideo(0);
-        }
-
-        function dropVideo(event) {
-            event.preventDefault();
-            if (!isHost) return;
-            const rawUrl = event.dataTransfer.getData('text');
-            if (rawUrl) addVideoDirect(rawUrl);
-        }
-
-        async function addVideoDirect(rawUrl) {
-            const source = parseVideoSource(rawUrl);
-            const playlistRef = window.dbRefs.ref(window.db, `rooms/${currentRoomId}/playlist`);
-            const snapshot = await window.dbRefs.get(playlistRef);
-            const list = snapshot.exists() ? Object.values(snapshot.val()) : [];
-            if (list.length < 20) {
-                list.push({ source: source, title: 'Видео [' + (list.length + 1) + ']' });
-                await window.dbRefs.set(playlistRef, list);
-                if (list.length === 1) selectVideo(0);
-            }
         }
 
         function renderPlaylist() {
