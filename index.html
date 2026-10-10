@@ -98,12 +98,12 @@
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
 
         @keyframes popUpEffect {
-            0% { transform: scale(0.2); opacity: 0; }
-            50% { transform: scale(1.2); opacity: 1; }
-            100% { transform: scale(1); opacity: 0; }
+            0% { transform: scale(0.1) rotate(-15deg); opacity: 0; }
+            50% { transform: scale(1.25) rotate(10deg); opacity: 1; }
+            100% { transform: scale(1) rotate(0deg); opacity: 0; }
         }
         .effect-animation {
-            animation: popUpEffect 2s ease-in-out forwards;
+            animation: popUpEffect 2.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
         }
     </style>
 </head>
@@ -111,7 +111,6 @@
       oncontextmenu="return false;" 
       onselectstart="return false;">
 
-    <!-- Контейнер для вау-эффектов на весь экран -->
     <div id="effects-overlay" class="fixed inset-0 pointer-events-none z-50 flex items-center justify-center overflow-hidden"></div>
 
     <!-- Лобби -->
@@ -205,12 +204,13 @@
         <div class="flex-grow grid grid-cols-1 lg:grid-cols-4 overflow-hidden">
             <div id="pane-video" class="lg:col-span-3 flex flex-col p-3 sm:p-4 overflow-y-auto space-y-4">
                 <div class="bg-cardBg rounded-xl border border-slate-800 overflow-hidden shadow-xl shrink-0 transition-colors">
-                    <div class="relative aspect-video bg-black" id="player-container">
-                        <div id="youtube-player" class="w-full h-full"></div>
+                    <div class="relative aspect-video bg-black flex items-center justify-center" id="player-container">
+                        <div id="youtube-player" class="w-full h-full absolute inset-0"></div>
+                        <video id="html5-player" class="w-full h-full absolute inset-0 object-contain hidden" controls playsinline></video>
                     </div>
                     <div id="host-controls-panel" class="p-3 sm:p-4 bg-slate-900/80 border-t border-slate-800 flex flex-col sm:flex-row gap-2.5 hidden" 
                          ondragover="event.preventDefault()" ondrop="dropVideo(event)">
-                        <input type="text" id="video-url-input" placeholder="Вставьте ссылку YouTube или перетащите сюда..." class="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-red-500 text-slate-100">
+                        <input type="text" id="video-url-input" placeholder="Вставьте ссылку на YouTube или любую прямую видеоссылку..." class="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-red-500 text-slate-100">
                         <button onclick="addVideo()" class="bg-red-600 hover:bg-red-700 text-white font-medium px-5 py-2.5 rounded-xl text-xs sm:text-sm transition">Добавить</button>
                     </div>
                     <div id="guest-notice" class="p-3 bg-slate-900/80 border-t border-slate-800 text-center text-xs text-slate-400">
@@ -240,12 +240,10 @@
                         <div class="text-slate-500 text-center italic text-[11px]">Безопасное соединение установлено.</div>
                     </div>
 
-                    <!-- Панель выбора 110+ эмодзи -->
                     <div id="emoji-picker-panel" class="hidden absolute bottom-16 left-3 right-3 bg-slate-950 border border-slate-800 rounded-2xl p-3 shadow-2xl max-h-48 overflow-y-auto grid grid-cols-6 gap-2 z-20"></div>
 
-                    <div class="flex gap-2 shrink-0 items-center">
-                        <button onclick="toggleEmojiPicker()" title="Выбрать эмодзи" class="bg-slate-900 hover:bg-slate-800 border border-slate-800 text-lg px-3 py-2 rounded-xl transition">😊</button>
-                        <input type="text" id="chat-input" onkeydown="if(event.key==='Enter') sendMessage()" placeholder="Сообщение..." class="flex-grow bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-red-500 text-slate-100">
+                    <div class="flex gap-2 shrink-0">
+                        <input type="text" id="chat-input" onkeydown="if(event.key==='Enter') sendMessage()" placeholder="Сообщение или /emoji..." class="flex-grow bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-red-500 text-slate-100">
                         <button onclick="sendMessage()" class="bg-red-600 hover:bg-red-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-medium transition">Отпр.</button>
                     </div>
                 </div>
@@ -283,7 +281,7 @@
         let currentUser = '';
         let currentRoomId = '';
         let isHost = false;
-        let player = null;
+        let ytPlayer = null;
         let currentPlaylist = [];
         let currentVideoIndex = 0;
         let isRemoteAction = false;
@@ -292,118 +290,21 @@
         let contactsList = JSON.parse(localStorage.getItem('user_contacts') || '[]');
         renderContacts();
 
-        // База из 110+ реакций и эмодзи с описаниями
         const emojiEffects = {
-            '❤️': { text: 'Сердечки от', bg: 'text-rose-500' },
-            '💖': { text: 'Огромная любовь от', bg: 'text-pink-500' },
-            '💋': { text: 'Воздушный поцелуй от', bg: 'text-red-400' },
-            '🤗': { text: 'Крепкие объятия от', bg: 'text-orange-400' },
-            '🏹': { text: 'Стрела Амура от', bg: 'text-rose-400' },
-            '🌹': { text: 'Алая роза от', bg: 'text-red-600' },
-            '🥺': { text: 'Милашка', bg: 'text-amber-300' },
-            '💘': { text: 'Краш', bg: 'text-pink-400' },
-            '🧁': { text: 'Сладость от', bg: 'text-purple-400' },
-            '😻': { text: 'Обожает', bg: 'text-yellow-400' },
-
-            '🔥': { text: 'Жарит по полной от', bg: 'text-amber-500' },
-            '🥵': { text: 'Слишком жарко от', bg: 'text-red-500' },
-            '🌋': { text: 'Извержение вулкана от', bg: 'text-orange-600' },
-            '⚡': { text: 'Электрический разряд от', bg: 'text-yellow-300' },
-            '💣': { text: 'Взрыв бомбы от', bg: 'text-slate-200' },
-            '✨': { text: 'Искры из глаз от', bg: 'text-yellow-200' },
-            '☀️': { text: 'Солнышко светит от', bg: 'text-amber-400' },
-            '🛸': { text: 'Лазерный удар от', bg: 'text-emerald-400' },
-            '📸': { text: 'Вспышка от', bg: 'text-cyan-300' },
-            '🏮': { text: 'Раскаленная лава от', bg: 'text-red-500' },
-
-            '🎉': { text: 'Взрывной вайб от', bg: 'text-purple-500' },
-            '🕺': { text: 'Танец от', bg: 'text-fuchsia-400' },
-            '🎧': { text: 'Качает трек от', bg: 'text-blue-400' },
-            '🎵': { text: 'Музыкальный кайф от', bg: 'text-indigo-400' },
-            '🪩': { text: 'Дискотека от', bg: 'text-pink-400' },
-            '🍻': { text: 'За встречу от', bg: 'text-amber-500' },
-            '🍕': { text: 'Вкуснятина от', bg: 'text-orange-500' },
-            '🎂': { text: 'Тортик от', bg: 'text-pink-300' },
-            '🍿': { text: 'Попкорн для кинчика от', bg: 'text-yellow-100' },
-            '🍾': { text: 'Празднуем от', bg: 'text-yellow-500' },
-
-            '⭐': { text: 'Респект от', bg: 'text-yellow-400' },
-            '👏': { text: 'Аплодисменты от', bg: 'text-blue-400' },
-            '👑': { text: 'Король комнаты —', bg: 'text-amber-400' },
-            '💼': { text: 'На стиле от', bg: 'text-slate-400' },
-            '🏆': { text: 'Победный кубок от', bg: 'text-yellow-500' },
-            '💪': { text: 'Мощный флакс от', bg: 'text-orange-400' },
-            '💰': { text: 'Денежный дождь от', bg: 'text-green-400' },
-            '🚀': { text: 'Улетает в космос от', bg: 'text-cyan-400' },
-            '🌟': { text: 'Суперзвезда', bg: 'text-yellow-300' },
-            '💎': { text: 'Элитный вайб от', bg: 'text-blue-300' },
-
-            '🤩': { text: 'В шоке от', bg: 'text-emerald-400' },
-            '💀': { text: 'Упал от смеха от', bg: 'text-slate-300' },
-            '🤡': { text: 'Пранк от', bg: 'text-red-400' },
-            '👻': { text: 'Призрак пролетел от', bg: 'text-indigo-300' },
-            '👽': { text: 'Инопланетянин прилетел от', bg: 'text-lime-400' },
-            '🕶️': { text: 'Агент вошел от', bg: 'text-green-500' },
-            '🥷': { text: 'Ниндзя-невидимка', bg: 'text-slate-500' },
-            '🤖': { text: 'Искусственный интеллект от', bg: 'text-cyan-400' },
-            '☠️': { text: 'Эпичный краш от', bg: 'text-slate-100' },
-            '🐱': { text: 'Кошачий мурлык от', bg: 'text-amber-300' },
-
-            '🐶': { text: 'Верный пёсель от', bg: 'text-amber-600' },
-            '🐯': { text: 'Тигр нашего чата —', bg: 'text-orange-500' },
-            '🐼': { text: 'Милая панда от', bg: 'text-slate-200' },
-            '🦊': { text: 'Хитрый лис от', bg: 'text-orange-500' },
-            '🐺': { text: 'Одинокий волк от', bg: 'text-slate-400' },
-            '🦁': { text: 'Лев комнаты —', bg: 'text-yellow-500' },
-            '🦄': { text: 'Единорог от', bg: 'text-pink-400' },
-            '🐲': { text: 'Дракон дышит огнем от', bg: 'text-emerald-500' },
-            '🦅': { text: 'Гордый орёл от', bg: 'text-amber-700' },
-            '🐝': { text: 'Трудолюбивая пчёлка от', bg: 'text-yellow-400' },
-
-            '🌧️': { text: 'Дождик за окном от', bg: 'text-blue-400' },
-            '❄️': { text: 'Снежинки полетели от', bg: 'text-cyan-200' },
-            '🌪️': { text: 'Ураганный ветер от', bg: 'text-slate-300' },
-            '🌙': { text: 'Ночная романтика от', bg: 'text-indigo-200' },
-            '🪐': { text: 'Космический привет от', bg: 'text-purple-400' },
-            '☄️': { text: 'Комета пролетела от', bg: 'text-orange-300' },
-            '🌈': { text: 'Радужное настроение от', bg: 'text-pink-400' },
-            '🌊': { text: 'Девятый вал от', bg: 'text-blue-500' },
-            '🎆': { text: 'Салют в честь', bg: 'text-red-400' },
-            '⚓': { text: 'Надежная якорная стоянка от', bg: 'text-blue-600' },
-
-            '👌': { text: 'Всё по кайфу от', bg: 'text-green-400' },
-            '✌️': { text: 'Мир и добро от', bg: 'text-blue-400' },
-            '😎': { text: 'Изи катка от', bg: 'text-amber-400' },
-            '🤔': { text: 'Глубокие мысли от', bg: 'text-yellow-400' },
-            '😴': { text: 'Сладкие сны от', bg: 'text-indigo-300' },
-            '🦾': { text: 'Кибернетическая сила от', bg: 'text-slate-300' },
-            '🤝': { text: 'Сделка века от', bg: 'text-amber-500' },
-            '👀': { text: 'Внимательно следит', bg: 'text-cyan-300' },
-            '🎯': { text: 'В яблочко от', bg: 'text-red-500' },
-            '🎁': { text: 'Сюрприз от', bg: 'text-pink-500' },
-
-            '🎮': { text: 'Геймерский настрой от', bg: 'text-purple-400' },
-            '🎲': { text: 'Бросок кубика от', bg: 'text-red-400' },
-            '🪄': { text: 'Магическое заклинание от', bg: 'text-indigo-400' },
-            '🧪': { text: 'Эликсир бодрости от', bg: 'text-emerald-400' },
-            '🛡️': { text: 'Надежная защита от', bg: 'text-blue-500' },
-            '⚔️': { text: 'Эпичная битва от', bg: 'text-slate-300' },
-            '🔮': { text: 'Предсказание от', bg: 'text-purple-300' },
-            '🌀': { text: 'Портал открыт от', bg: 'text-cyan-400' },
-            '🏅': { text: 'Медаль за участие от', bg: 'text-yellow-400' },
-            '🗝️': { text: 'Ключ к успеху от', bg: 'text-amber-400' },
-
-            '😊': { text: 'Улыбка дня от', bg: 'text-yellow-300' },
-            '😂': { text: 'Смех до слёз от', bg: 'text-amber-400' },
-            '😉': { text: 'Подмигивание от', bg: 'text-blue-300' },
-            '😇': { text: 'Ангелочек', bg: 'text-yellow-200' },
-            '🤓': { text: 'Профессор чата —', bg: 'text-blue-300' },
-            '📢': { text: 'Громкое заявление от', bg: 'text-red-500' },
-            '🔔': { text: 'Внимание всем от', bg: 'text-yellow-400' },
-            '💡': { text: 'Гениальная идея от', bg: 'text-yellow-300' }
+            '❤️': { title: 'Искренняя любовь', text: 'посылает сердечки', color: 'text-rose-500' },
+            '💖': { title: 'Огромная симпатия', text: 'купается в любви', color: 'text-pink-500' },
+            '💋': { title: 'Воздушный поцелуй', text: 'отправляет поцелуйчик', color: 'text-red-400' },
+            '🤗': { title: 'Теплые объятия', text: 'крепко обнимает всех', color: 'text-orange-400' },
+            '🏹': { title: 'Стрела Амура', text: 'поражает в сердце', color: 'text-rose-400' },
+            '🌹': { title: 'Красивый жест', text: 'дарит розу', color: 'text-red-600' },
+            '🥺': { title: 'Чистая милота', text: 'смотрит с умилением', color: 'text-amber-300' },
+            '🔥': { title: 'Максимальная жара', text: 'зажигает по полной', color: 'text-amber-500' },
+            '🎉': { title: 'Праздничный салют', text: 'устроил вечеринку', color: 'text-purple-500' },
+            '⭐': { title: 'Звездный статус', text: 'получил признание', color: 'text-yellow-400' },
+            '🤩': { title: 'Шок и трепет', text: 'ошеломлен происходящим', color: 'text-emerald-400' },
+            '💀': { title: 'Эпичный угар', text: 'упал от смеха', color: 'text-slate-300' }
         };
 
-        // Заполнение панели эмодзи при загрузке
         document.addEventListener("DOMContentLoaded", () => {
             const picker = document.getElementById('emoji-picker-panel');
             if (picker) {
@@ -414,8 +315,7 @@
         });
 
         function toggleEmojiPicker() {
-            const picker = document.getElementById('emoji-picker-panel');
-            picker.classList.toggle('hidden');
+            document.getElementById('emoji-picker-panel').classList.toggle('hidden');
         }
 
         async function sendEmojiReaction(emoji) {
@@ -423,8 +323,7 @@
             const messagesRef = window.dbRefs.ref(window.db, `rooms/${currentRoomId}/messages`);
             const newMsgRef = window.dbRefs.push(messagesRef);
             await window.dbRefs.set(newMsgRef, {
-                user: currentUser, 
-                text: emoji,
+                user: currentUser, text: emoji,
                 time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
             });
         }
@@ -471,24 +370,62 @@
 
         function onYouTubeIframeAPIReady() {}
 
-        function initPlayer(videoId, seekToTime = 0) {
-            if (player) {
-                player.loadVideoById({videoId: videoId, startSeconds: seekToTime});
-                return;
+        // Умное определение типа ссылки (YouTube или прямая ссылка на видео)
+        function parseVideoSource(url) {
+            const ytRegExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+            const match = url.match(ytRegExp);
+            if (match && match[2].length === 11) {
+                return { type: 'youtube', id: match[2] };
             }
-            player = new YT.Player('youtube-player', {
-                height: '100%', width: '100%', videoId: videoId,
-                playerVars: { 'playsinline': 1, 'autoplay': 1, 'rel': 0, 'start': Math.floor(seekToTime) },
-                events: { 'onStateChange': onPlayerStateChange }
-            });
+            // Если это прямая ссылка на видеофайл (.mp4, .webm, .ogg, .mov и т.д.) или любая другая ссылка
+            return { type: 'html5', url: url };
         }
 
-        function onPlayerStateChange(event) {
+        function playVideoItem(sourceObj, seekToTime = 0) {
+            const ytDiv = document.getElementById('youtube-player');
+            const html5Video = document.getElementById('html5-player');
+
+            if (sourceObj.type === 'youtube') {
+                html5Video.classList.add('hidden');
+                html5Video.pause();
+                ytDiv.classList.remove('hidden');
+
+                if (ytPlayer && typeof ytPlayer.loadVideoById === 'function') {
+                    ytPlayer.loadVideoById({ videoId: sourceObj.id, startSeconds: seekToTime });
+                } else {
+                    ytPlayer = new YT.Player('youtube-player', {
+                        height: '100%', width: '100%', videoId: sourceObj.id,
+                        playerVars: { 'playsinline': 1, 'autoplay': 1, 'rel': 0, 'start': Math.floor(seekToTime) },
+                        events: { 'onStateChange': onYTPlayerStateChange }
+                    });
+                }
+            } else {
+                ytDiv.classList.add('hidden');
+                html5Video.classList.remove('hidden');
+                if (html5Video.src !== sourceObj.url) {
+                    html5Video.src = sourceObj.url;
+                }
+                html5Video.currentTime = seekToTime;
+                html5Video.play().catch(e => console.log("Autoplay blocked:", e));
+
+                // События для HTML5 плеера
+                html5Video.onplay = () => {
+                    if (!isHost || isRemoteAction) return;
+                    updatePlayerStateInFirebase('play', html5Video.currentTime);
+                };
+                html5Video.onpause = () => {
+                    if (!isHost || isRemoteAction) return;
+                    updatePlayerStateInFirebase('pause', html5Video.currentTime);
+                };
+            }
+        }
+
+        function onYTPlayerStateChange(event) {
             if (!isHost || isRemoteAction) return;
             if (event.data === YT.PlayerState.PLAYING) {
-                updatePlayerStateInFirebase('play', player.getCurrentTime());
+                updatePlayerStateInFirebase('play', ytPlayer.getCurrentTime());
             } else if (event.data === YT.PlayerState.PAUSED) {
-                updatePlayerStateInFirebase('pause', player.getCurrentTime());
+                updatePlayerStateInFirebase('pause', ytPlayer.getCurrentTime());
             }
         }
 
@@ -496,12 +433,6 @@
             await window.dbRefs.update(window.dbRefs.ref(window.db, `rooms/${currentRoomId}/playerState`), {
                 action: action, time: time, serverTime: window.dbRefs.serverTimestamp()
             });
-        }
-
-        function extractVideoId(url) {
-            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-            const match = url.match(regExp);
-            return (match && match[2].length === 11) ? match[2] : null;
         }
 
         async function createRoom() {
@@ -519,9 +450,11 @@
             const roomRef = window.dbRefs.ref(window.db, 'rooms/' + currentRoomId);
             window.dbRefs.onDisconnect(roomRef).remove();
 
+            const defaultSource = parseVideoSource('https://www.youtube.com/watch?v=jfKfPfyJRdk');
+
             await window.dbRefs.set(roomRef, {
                 title: roomTitle, password: password || '',
-                playlist: [{ id: 'jfKfPfyJRdk', title: 'Lofi Hip Hop Radio' }],
+                playlist: [{ source: defaultSource, title: 'Lofi Hip Hop Radio' }],
                 currentIndex: 0,
                 playerState: { action: 'play', time: 0, serverTime: window.dbRefs.serverTimestamp() },
                 users: { [window.currentUser.uid]: { name: currentUser, isHost: true } },
@@ -586,7 +519,7 @@
                 if (data.currentIndex !== undefined) currentVideoIndex = data.currentIndex;
 
                 if (data.playerState && data.playlist && data.playlist[currentVideoIndex]) {
-                    const videoId = data.playlist[currentVideoIndex].id;
+                    const videoItem = data.playlist[currentVideoIndex];
                     const state = data.playerState;
                     let targetTime = state.time || 0;
                     if (state.action === 'play' && state.serverTime) {
@@ -594,18 +527,19 @@
                         if (elapsed > 0 && elapsed < 7200) targetTime += elapsed;
                     }
 
-                    if (!player) {
-                        initPlayer(videoId, targetTime);
-                    } else {
-                        const activeId = player.getVideoData ? player.getVideoData().video_id : null;
-                        if (activeId !== videoId) {
-                            player.loadVideoById({videoId: videoId, startSeconds: targetTime});
-                        } else if (!isHost) {
-                            isRemoteAction = true;
-                            if (Math.abs(player.getCurrentTime() - targetTime) > 2.0) player.seekTo(targetTime, true);
-                            if (state.action === 'play') player.playVideo(); else player.pauseVideo();
-                            setTimeout(() => { isRemoteAction = false; }, 500);
+                    playVideoItem(videoItem.source, targetTime);
+
+                    if (!isHost) {
+                        isRemoteAction = true;
+                        const html5Video = document.getElementById('html5-player');
+                        if (videoItem.source.type === 'youtube' && ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
+                            if (Math.abs(ytPlayer.getCurrentTime() - targetTime) > 2.0) ytPlayer.seekTo(targetTime, true);
+                            if (state.action === 'play') ytPlayer.playVideo(); else ytPlayer.pauseVideo();
+                        } else if (videoItem.source.type === 'html5') {
+                            if (Math.abs(html5Video.currentTime - targetTime) > 2.0) html5Video.currentTime = targetTime;
+                            if (state.action === 'play') html5Video.play(); else html5Video.pause();
                         }
+                        setTimeout(() => { isRemoteAction = false; }, 500);
                     }
                 }
                 if (data.users) updateUsersList(Object.values(data.users));
@@ -626,15 +560,17 @@
         async function addVideo() {
             if (!isHost) return;
             const input = document.getElementById('video-url-input');
-            const videoId = extractVideoId(input.value.trim());
-            if (!videoId) { alert('Неверная ссылка!'); return; }
+            const rawUrl = input.value.trim();
+            if (!rawUrl) { alert('Введите ссылку на видео!'); return; }
+
+            const source = parseVideoSource(rawUrl);
 
             const playlistRef = window.dbRefs.ref(window.db, `rooms/${currentRoomId}/playlist`);
             const snapshot = await window.dbRefs.get(playlistRef);
             const list = snapshot.exists() ? Object.values(snapshot.val()) : [];
             if (list.length >= 20) { alert('Лимит 20 видео.'); return; }
 
-            list.push({ id: videoId, title: 'Видео [' + videoId + ']' });
+            list.push({ source: source, title: 'Видео [' + (list.length + 1) + ']' });
             await window.dbRefs.set(playlistRef, list);
             input.value = '';
             if (list.length === 1) selectVideo(0);
@@ -643,16 +579,17 @@
         function dropVideo(event) {
             event.preventDefault();
             if (!isHost) return;
-            const videoId = extractVideoId(event.dataTransfer.getData('text'));
-            if (videoId) addVideoDirect(videoId);
+            const rawUrl = event.dataTransfer.getData('text');
+            if (rawUrl) addVideoDirect(rawUrl);
         }
 
-        async function addVideoDirect(videoId) {
+        async function addVideoDirect(rawUrl) {
+            const source = parseVideoSource(rawUrl);
             const playlistRef = window.dbRefs.ref(window.db, `rooms/${currentRoomId}/playlist`);
             const snapshot = await window.dbRefs.get(playlistRef);
             const list = snapshot.exists() ? Object.values(snapshot.val()) : [];
             if (list.length < 20) {
-                list.push({ id: videoId, title: 'Видео [' + videoId + ']' });
+                list.push({ source: source, title: 'Видео [' + (list.length + 1) + ']' });
                 await window.dbRefs.set(playlistRef, list);
                 if (list.length === 1) selectVideo(0);
             }
@@ -695,6 +632,12 @@
             const text = input.value.trim();
             if (!text) return;
 
+            if (text.toLowerCase() === '/emoji') {
+                toggleEmojiPicker();
+                input.value = '';
+                return;
+            }
+
             const messagesRef = window.dbRefs.ref(window.db, `rooms/${currentRoomId}/messages`);
             const newMsgRef = window.dbRefs.push(messagesRef);
             await window.dbRefs.set(newMsgRef, {
@@ -705,24 +648,23 @@
         }
 
         function triggerWowEffect(user, emoji) {
-            const cfg = emojiEffects[emoji] || { text: 'Реакция от', bg: 'text-rose-400' };
+            const cfg = emojiEffects[emoji] || { title: 'Реакция', text: 'отправил эмодзи', color: 'text-rose-400' };
 
             const overlay = document.getElementById('effects-overlay');
             const box = document.createElement('div');
-            box.className = "flex flex-col items-center justify-center p-6 bg-black/80 border border-slate-700 rounded-3xl shadow-2xl effect-animation";
+            box.className = "flex flex-col items-center justify-center p-6 bg-black/85 border border-slate-700 rounded-3xl shadow-2xl effect-animation max-w-xs text-center";
             box.innerHTML = `
                 <div class="text-6xl sm:text-8xl mb-2 animate-bounce">${emoji}</div>
-                <div class="text-xs sm:text-sm font-bold text-slate-300">${cfg.text}</div>
-                <div class="text-lg sm:text-xl font-extrabold ${cfg.bg}">${user}!</div>
+                <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">${cfg.title}</div>
+                <div class="text-xs sm:text-sm text-slate-200 mb-1"><span class="font-bold text-red-400">${user}</span> ${cfg.text}!</div>
             `;
             overlay.appendChild(box);
-            setTimeout(() => box.remove(), 2000);
+            setTimeout(() => box.remove(), 2200);
         }
 
         function renderChat(messages) {
             const container = document.getElementById('chat-messages');
             container.innerHTML = messages.map(msg => {
-                // Если сообщение совпадает с эмодзи из списка, запускаем вау-эффект
                 if (emojiEffects[msg.text]) {
                     triggerWowEffect(msg.user, msg.text);
                 }
