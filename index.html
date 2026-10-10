@@ -103,6 +103,16 @@
         .effect-animation {
             animation: popUpEffect 2.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
         }
+
+        @keyframes floatMessage {
+            0% { transform: translateY(20px); opacity: 0; }
+            15% { transform: translateY(0); opacity: 1; }
+            85% { transform: translateY(0); opacity: 1; }
+            100% { transform: translateY(-20px); opacity: 0; }
+        }
+        .floating-msg {
+            animation: floatMessage 3.5s ease-in-out forwards;
+        }
     </style>
 </head>
 <body id="app-body" class="bg-darkBg text-slate-100 min-h-screen flex flex-col justify-between overflow-x-hidden transition-colors duration-300" 
@@ -203,22 +213,31 @@
             <div id="pane-video" class="lg:col-span-3 flex flex-col p-3 sm:p-4 overflow-y-auto space-y-4">
                 <div class="bg-cardBg rounded-xl border border-slate-800 overflow-hidden shadow-xl shrink-0 transition-colors">
                     <div class="relative aspect-video bg-black flex items-center justify-center" id="player-container">
-                        <!-- Синхронизированный iframe для всех участников -->
+                        <!-- Всплывающие сообщения поверх видео -->
+                        <div id="video-overlay-messages" class="absolute inset-x-0 bottom-4 pointer-events-none z-30 flex flex-col items-center space-y-2 overflow-hidden h-32 justify-end px-4"></div>
                         <iframe id="youtube-iframe" class="w-full h-full absolute inset-0 border-0" src="" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
                     </div>
-                    <div id="host-controls-panel" class="p-3 sm:p-4 bg-slate-900/80 border-t border-slate-800 flex flex-col sm:flex-row gap-2.5 hidden">
-                        <input type="text" id="video-url-input" placeholder="Вставьте ссылку на YouTube (например, https://youtu.be/...)..." class="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-red-500 text-slate-100">
-                        <button onclick="addVideo()" class="bg-red-600 hover:bg-red-700 text-white font-medium px-5 py-2.5 rounded-xl text-xs sm:text-sm transition">Добавить</button>
+
+                    <!-- Панель управления (Хост может ставить паузу/воспроизведение для всех) -->
+                    <div id="host-controls-panel" class="p-3 sm:p-4 bg-slate-900/90 border-t border-slate-800 flex flex-col gap-2.5 hidden">
+                        <div class="flex gap-2">
+                            <input type="text" id="video-url-input" placeholder="Ссылка на YouTube..." class="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-red-500 text-slate-100">
+                            <button onclick="addVideo()" class="bg-red-600 hover:bg-red-700 text-white font-medium px-5 py-2.5 rounded-xl text-xs sm:text-sm transition">Добавить</button>
+                        </div>
+                        <div class="flex gap-2 pt-1">
+                            <button onclick="sendPlaybackCommand('play')" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-xl text-xs font-bold transition">▶ Воспроизвести всем</button>
+                            <button onclick="sendPlaybackCommand('pause')" class="flex-1 bg-amber-600 hover:bg-amber-700 text-white py-2 rounded-xl text-xs font-bold transition">⏸ Пауза всем</button>
+                        </div>
                     </div>
                     <div id="guest-notice" class="p-3 bg-slate-900/80 border-t border-slate-800 text-center text-xs text-slate-400">
-                        Плейлистом и видео управляет Хост комнаты.
+                        Управлением воспроизведением и плейлистом руководит Хост.
                     </div>
                 </div>
 
                 <div class="bg-cardBg rounded-xl border border-slate-800 p-4 flex-grow flex flex-col min-h-[180px] transition-colors">
                     <div class="flex items-center justify-between mb-3">
                         <h3 class="text-xs sm:text-sm font-semibold text-slate-300">Очередь воспроизведения (<span id="queue-count">0</span>/20)</h3>
-                        <span class="text-[10px] text-slate-500">YouTube Sync</span>
+                        <span class="text-[10px] text-slate-500">Instant Sync</span>
                     </div>
                     <div id="playlist-container" class="space-y-2 overflow-y-auto max-h-40 sm:max-h-52 flex-grow pr-1">
                         <p class="text-xs text-slate-500 text-center py-6">Плейлист пуст.</p>
@@ -280,6 +299,7 @@
         let isHost = false;
         let currentPlaylist = [];
         let currentVideoIndex = 0;
+        let lastCommandId = '';
         let unreadMessages = 0;
         let activeMobileTabName = 'video';
         let contactsList = JSON.parse(localStorage.getItem('user_contacts') || '[]');
@@ -383,12 +403,26 @@
             return (videoId && videoId.length === 11) ? videoId : null;
         }
 
-        function playYouTubeVideo(videoId) {
+        function updatePlayerFrame(videoId, isPlaying) {
             const iframe = document.getElementById('youtube-iframe');
-            const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+            const playParam = isPlaying ? 1 : 0;
+            const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=${playParam}&enablejsapi=1`;
             if (iframe.src !== embedUrl) {
                 iframe.src = embedUrl;
             }
+        }
+
+        async function sendPlaybackCommand(action) {
+            if (!isHost) return;
+            const videoItem = currentPlaylist[currentVideoIndex];
+            if (!videoItem) return;
+
+            const commandRef = window.dbRefs.ref(window.db, `rooms/${currentRoomId}/playback`);
+            await window.dbRefs.set(commandRef, {
+                action: action,
+                videoId: videoItem.id,
+                timestamp: window.dbRefs.serverTimestamp()
+            });
         }
 
         async function createRoom() {
@@ -410,6 +444,7 @@
                 title: roomTitle, password: password || '',
                 playlist: [{ id: 'jfKfPfyJRdk', title: 'Lofi Hip Hop Radio' }],
                 currentIndex: 0,
+                playback: { action: 'play', videoId: 'jfKfPfyJRdk' },
                 users: { [window.currentUser.uid]: { name: currentUser, isHost: true } },
                 messages: {}
             });
@@ -471,9 +506,11 @@
                 }
                 if (data.currentIndex !== undefined) currentVideoIndex = data.currentIndex;
 
-                if (data.playlist && data.playlist[currentVideoIndex]) {
-                    const videoItem = data.playlist[currentVideoIndex];
-                    playYouTubeVideo(videoItem.id);
+                if (data.playback) {
+                    const isPlaying = data.playback.action === 'play';
+                    updatePlayerFrame(data.playback.videoId, isPlaying);
+                } else if (data.playlist && data.playlist[currentVideoIndex]) {
+                    updatePlayerFrame(data.playlist[currentVideoIndex].id, true);
                 }
 
                 if (data.users) updateUsersList(Object.values(data.users));
@@ -530,8 +567,11 @@
 
         async function selectVideo(index) {
             if (!isHost) return;
+            currentVideoIndex = index;
+            const videoItem = currentPlaylist[index];
             await window.dbRefs.update(window.dbRefs.ref(window.db, `rooms/${currentRoomId}`), {
-                currentIndex: index
+                currentIndex: index,
+                playback: { action: 'play', videoId: videoItem.id, timestamp: window.dbRefs.serverTimestamp() }
             });
         }
 
@@ -561,9 +601,17 @@
             input.value = '';
         }
 
+        function showFloatingMessage(user, text) {
+            const container = document.getElementById('video-overlay-messages');
+            const el = document.createElement('div');
+            el.className = "bg-black/80 border border-slate-700 text-white px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium shadow-2xl floating-msg max-w-xs truncate pointer-events-none";
+            el.innerHTML = `<span class="text-red-400 font-bold">${user}:</span> ${text}`;
+            container.appendChild(el);
+            setTimeout(() => el.remove(), 3500);
+        }
+
         function triggerWowEffect(user, emoji) {
             const cfg = emojiEffects[emoji] || { title: 'Реакция', text: 'отправил эмодзи', color: 'text-rose-400' };
-
             const overlay = document.getElementById('effects-overlay');
             const box = document.createElement('div');
             box.className = "flex flex-col items-center justify-center p-6 bg-black/85 border border-slate-700 rounded-3xl shadow-2xl effect-animation max-w-xs text-center";
@@ -578,7 +626,18 @@
 
         function renderChat(messages) {
             const container = document.getElementById('chat-messages');
-            container.innerHTML = messages.map(msg => {
+            const keys = Object.keys(messages);
+            const latestKey = keys[keys.length - 1];
+            const latestMsg = messages[latestKey];
+
+            if (latestMsg && latestMsg.text !== lastCommandId) {
+                lastCommandId = latestMsg.text;
+                if (!emojiEffects[latestMsg.text]) {
+                    showFloatingMessage(latestMsg.user, latestMsg.text);
+                }
+            }
+
+            container.innerHTML = Object.values(messages).map(msg => {
                 if (emojiEffects[msg.text]) {
                     triggerWowEffect(msg.user, msg.text);
                 }
