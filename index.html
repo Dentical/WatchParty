@@ -81,8 +81,6 @@
             }
         });
     </script>
-    <!-- YouTube IFrame API -->
-    <script src="https://www.youtube.com/iframe_api"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         body { 
@@ -205,7 +203,8 @@
             <div id="pane-video" class="lg:col-span-3 flex flex-col p-3 sm:p-4 overflow-y-auto space-y-4">
                 <div class="bg-cardBg rounded-xl border border-slate-800 overflow-hidden shadow-xl shrink-0 transition-colors">
                     <div class="relative aspect-video bg-black flex items-center justify-center" id="player-container">
-                        <div id="youtube-player" class="w-full h-full absolute inset-0"></div>
+                        <!-- Надежный iframe проигрыватель без черных экранов -->
+                        <iframe id="youtube-iframe" class="w-full h-full absolute inset-0 border-0" src="" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
                     </div>
                     <div id="host-controls-panel" class="p-3 sm:p-4 bg-slate-900/80 border-t border-slate-800 flex flex-col sm:flex-row gap-2.5 hidden">
                         <input type="text" id="video-url-input" placeholder="Вставьте ссылку на YouTube (например, https://youtu.be/...)..." class="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-red-500 text-slate-100">
@@ -279,13 +278,8 @@
         let currentUser = '';
         let currentRoomId = '';
         let isHost = false;
-        let ytPlayer = null;
-        let isPlayerReady = false;
-        let pendingVideoId = null;
-        let pendingSeekTime = 0;
         let currentPlaylist = [];
         let currentVideoIndex = 0;
-        let isRemoteAction = false;
         let unreadMessages = 0;
         let activeMobileTabName = 'video';
         let contactsList = JSON.parse(localStorage.getItem('user_contacts') || '[]');
@@ -369,24 +363,6 @@
             `).join('');
         }
 
-        function onYouTubeIframeAPIReady() {
-            ytPlayer = new YT.Player('youtube-player', {
-                height: '100%',
-                width: '100%',
-                videoId: pendingVideoId || 'jfKfPfyJRdk',
-                playerVars: { 'playsinline': 1, 'autoplay': 1, 'rel': 0, 'start': Math.floor(pendingSeekTime) },
-                events: {
-                    'onReady': (event) => {
-                        isPlayerReady = true;
-                        if (pendingVideoId) {
-                            event.target.loadVideoById({ videoId: pendingVideoId, startSeconds: pendingSeekTime });
-                        }
-                    },
-                    'onStateChange': onYTPlayerStateChange
-                }
-            });
-        }
-
         function parseYouTubeId(url) {
             let videoId = null;
             try {
@@ -408,27 +384,11 @@
         }
 
         function playYouTubeVideo(videoId, seekToTime = 0) {
-            pendingVideoId = videoId;
-            pendingSeekTime = seekToTime;
-
-            if (isPlayerReady && ytPlayer && typeof ytPlayer.loadVideoById === 'function') {
-                ytPlayer.loadVideoById({ videoId: videoId, startSeconds: seekToTime });
+            const iframe = document.getElementById('youtube-iframe');
+            const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&start=${Math.floor(seekToTime)}&enablejsapi=1`;
+            if (iframe.src !== embedUrl) {
+                iframe.src = embedUrl;
             }
-        }
-
-        function onYTPlayerStateChange(event) {
-            if (!isHost || isRemoteAction) return;
-            if (event.data === YT.PlayerState.PLAYING) {
-                updatePlayerStateInFirebase('play', ytPlayer.getCurrentTime());
-            } else if (event.data === YT.PlayerState.PAUSED) {
-                updatePlayerStateInFirebase('pause', ytPlayer.getCurrentTime());
-            }
-        }
-
-        async function updatePlayerStateInFirebase(action, time) {
-            await window.dbRefs.update(window.dbRefs.ref(window.db, `rooms/${currentRoomId}/playerState`), {
-                action: action, time: time, serverTime: window.dbRefs.serverTimestamp()
-            });
         }
 
         async function createRoom() {
@@ -448,7 +408,7 @@
 
             await window.dbRefs.set(roomRef, {
                 title: roomTitle, password: password || '',
-                playlist: [{ id: 'G5zlCfYLb7c', title: 'YouTube Ролик' }],
+                playlist: [{ id: 'jfKfPfyJRdk', title: 'Lofi Hip Hop Radio' }],
                 currentIndex: 0,
                 playerState: { action: 'play', time: 0, serverTime: window.dbRefs.serverTimestamp() },
                 users: { [window.currentUser.uid]: { name: currentUser, isHost: true } },
@@ -522,17 +482,6 @@
                     }
 
                     playYouTubeVideo(videoItem.id, targetTime);
-
-                    if (!isHost) {
-                        isRemoteAction = true;
-                        if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function' && isPlayerReady) {
-                            if (Math.abs(ytPlayer.getCurrentTime() - targetTime) > 3.0) {
-                                ytPlayer.seekTo(targetTime, true);
-                            }
-                            if (state.action === 'play') ytPlayer.playVideo(); else ytPlayer.pauseVideo();
-                        }
-                        setTimeout(() => { isRemoteAction = false; }, 800);
-                    }
                 }
                 if (data.users) updateUsersList(Object.values(data.users));
                 if (data.messages) renderChat(Object.values(data.messages));
