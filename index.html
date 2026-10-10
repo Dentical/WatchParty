@@ -81,8 +81,6 @@
             }
         });
     </script>
-    <!-- YouTube IFrame API -->
-    <script src="https://www.youtube.com/iframe_api"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         body { 
@@ -205,14 +203,15 @@
             <div id="pane-video" class="lg:col-span-3 flex flex-col p-3 sm:p-4 overflow-y-auto space-y-4">
                 <div class="bg-cardBg rounded-xl border border-slate-800 overflow-hidden shadow-xl shrink-0 transition-colors">
                     <div class="relative aspect-video bg-black flex items-center justify-center" id="player-container">
-                        <div id="youtube-player" class="w-full h-full absolute inset-0"></div>
+                        <!-- Надежный iframe проигрыватель -->
+                        <iframe id="youtube-iframe" class="w-full h-full absolute inset-0 border-0" src="" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
                     </div>
                     <div id="host-controls-panel" class="p-3 sm:p-4 bg-slate-900/80 border-t border-slate-800 flex flex-col sm:flex-row gap-2.5 hidden">
                         <input type="text" id="video-url-input" placeholder="Вставьте ссылку на YouTube (например, https://youtu.be/...)..." class="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-red-500 text-slate-100">
                         <button onclick="addVideo()" class="bg-red-600 hover:bg-red-700 text-white font-medium px-5 py-2.5 rounded-xl text-xs sm:text-sm transition">Добавить</button>
                     </div>
                     <div id="guest-notice" class="p-3 bg-slate-900/80 border-t border-slate-800 text-center text-xs text-slate-400">
-                        Плейлистом и воспроизведением управляет строго Хост комнаты.
+                        Плейлистом и видео управляет Хост комнаты.
                     </div>
                 </div>
 
@@ -279,11 +278,8 @@
         let currentUser = '';
         let currentRoomId = '';
         let isHost = false;
-        let ytPlayer = null;
-        let isPlayerReady = false;
         let currentPlaylist = [];
         let currentVideoIndex = 0;
-        let isSyncing = false;
         let unreadMessages = 0;
         let activeMobileTabName = 'video';
         let contactsList = JSON.parse(localStorage.getItem('user_contacts') || '[]');
@@ -367,21 +363,6 @@
             `).join('');
         }
 
-        function onYouTubeIframeAPIReady() {
-            ytPlayer = new YT.Player('youtube-player', {
-                height: '100%',
-                width: '100%',
-                videoId: 'jfKfPfyJRdk',
-                playerVars: { 'playsinline': 1, 'controls': 1, 'rel': 0 },
-                events: {
-                    'onReady': (event) => {
-                        isPlayerReady = true;
-                    },
-                    'onStateChange': onYTPlayerStateChange
-                }
-            });
-        }
-
         function parseYouTubeId(url) {
             let videoId = null;
             try {
@@ -402,26 +383,12 @@
             return (videoId && videoId.length === 11) ? videoId : null;
         }
 
-        function onYTPlayerStateChange(event) {
-            if (!isHost || isSyncing) return;
-
-            let action = 'pause';
-            if (event.data === YT.PlayerState.PLAYING) {
-                action = 'play';
-            } else if (event.data === YT.PlayerState.PAUSED) {
-                action = 'pause';
-            } else {
-                return;
+        function playYouTubeVideo(videoId) {
+            const iframe = document.getElementById('youtube-iframe');
+            const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+            if (iframe.src !== embedUrl) {
+                iframe.src = embedUrl;
             }
-
-            const currentTime = ytPlayer.getCurrentTime() || 0;
-            updatePlayerStateInFirebase(action, currentTime);
-        }
-
-        async function updatePlayerStateInFirebase(action, time) {
-            await window.dbRefs.update(window.dbRefs.ref(window.db, `rooms/${currentRoomId}/playerState`), {
-                action: action, time: time, serverTime: window.dbRefs.serverTimestamp()
-            });
         }
 
         async function createRoom() {
@@ -443,7 +410,6 @@
                 title: roomTitle, password: password || '',
                 playlist: [{ id: 'jfKfPfyJRdk', title: 'Lofi Hip Hop Radio' }],
                 currentIndex: 0,
-                playerState: { action: 'pause', time: 0, serverTime: window.dbRefs.serverTimestamp() },
                 users: { [window.currentUser.uid]: { name: currentUser, isHost: true } },
                 messages: {}
             });
@@ -505,33 +471,9 @@
                 }
                 if (data.currentIndex !== undefined) currentVideoIndex = data.currentIndex;
 
-                if (data.playerState && data.playlist && data.playlist[currentVideoIndex] && isPlayerReady) {
+                if (data.playlist && data.playlist[currentVideoIndex]) {
                     const videoItem = data.playlist[currentVideoIndex];
-                    const state = data.playerState;
-
-                    let targetTime = state.time || 0;
-                    if (state.action === 'play' && state.serverTime) {
-                        const elapsed = (Date.now() - state.serverTime) / 1000;
-                        if (elapsed > 0 && elapsed < 7200) targetTime += elapsed;
-                    }
-
-                    isSyncing = true;
-                    const currentId = ytPlayer.getVideoData().video_id;
-
-                    if (currentId !== videoItem.id) {
-                        ytPlayer.loadVideoById({ videoId: videoItem.id, startSeconds: targetTime });
-                    } else {
-                        if (Math.abs(ytPlayer.getCurrentTime() - targetTime) > 2.5) {
-                            ytPlayer.seekTo(targetTime, true);
-                        }
-                        if (state.action === 'play') {
-                            ytPlayer.playVideo();
-                        } else {
-                            ytPlayer.pauseVideo();
-                        }
-                    }
-
-                    setTimeout(() => { isSyncing = false; }, 600);
+                    playYouTubeVideo(videoItem.id);
                 }
 
                 if (data.users) updateUsersList(Object.values(data.users));
@@ -589,8 +531,7 @@
         async function selectVideo(index) {
             if (!isHost) return;
             await window.dbRefs.update(window.dbRefs.ref(window.db, `rooms/${currentRoomId}`), {
-                currentIndex: index,
-                playerState: { action: 'play', time: 0, serverTime: window.dbRefs.serverTimestamp() }
+                currentIndex: index
             });
         }
 
