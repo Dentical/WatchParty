@@ -280,6 +280,9 @@
         let currentRoomId = '';
         let isHost = false;
         let ytPlayer = null;
+        let isPlayerReady = false;
+        let pendingVideoId = null;
+        let pendingSeekTime = 0;
         let currentPlaylist = [];
         let currentVideoIndex = 0;
         let isRemoteAction = false;
@@ -366,9 +369,24 @@
             `).join('');
         }
 
-        function onYouTubeIframeAPIReady() {}
+        function onYouTubeIframeAPIReady() {
+            ytPlayer = new YT.Player('youtube-player', {
+                height: '100%',
+                width: '100%',
+                videoId: pendingVideoId || 'jfKfPfyJRdk',
+                playerVars: { 'playsinline': 1, 'autoplay': 1, 'rel': 0, 'start': Math.floor(pendingSeekTime) },
+                events: {
+                    'onReady': (event) => {
+                        isPlayerReady = true;
+                        if (pendingVideoId) {
+                            event.target.loadVideoById({ videoId: pendingVideoId, startSeconds: pendingSeekTime });
+                        }
+                    },
+                    'onStateChange': onYTPlayerStateChange
+                }
+            });
+        }
 
-        // Исправленный универсальный парсер ID YouTube
         function parseYouTubeId(url) {
             let videoId = null;
             try {
@@ -390,14 +408,11 @@
         }
 
         function playYouTubeVideo(videoId, seekToTime = 0) {
-            if (ytPlayer && typeof ytPlayer.loadVideoById === 'function') {
+            pendingVideoId = videoId;
+            pendingSeekTime = seekToTime;
+
+            if (isPlayerReady && ytPlayer && typeof ytPlayer.loadVideoById === 'function') {
                 ytPlayer.loadVideoById({ videoId: videoId, startSeconds: seekToTime });
-            } else {
-                ytPlayer = new YT.Player('youtube-player', {
-                    height: '100%', width: '100%', videoId: videoId,
-                    playerVars: { 'playsinline': 1, 'autoplay': 1, 'rel': 0, 'start': Math.floor(seekToTime) },
-                    events: { 'onStateChange': onYTPlayerStateChange }
-                });
             }
         }
 
@@ -433,7 +448,7 @@
 
             await window.dbRefs.set(roomRef, {
                 title: roomTitle, password: password || '',
-                playlist: [{ id: 'jfKfPfyJRdk', title: 'Lofi Hip Hop Radio' }],
+                playlist: [{ id: 'G5zlCfYLb7c', title: 'YouTube Ролик' }],
                 currentIndex: 0,
                 playerState: { action: 'play', time: 0, serverTime: window.dbRefs.serverTimestamp() },
                 users: { [window.currentUser.uid]: { name: currentUser, isHost: true } },
@@ -510,7 +525,7 @@
 
                     if (!isHost) {
                         isRemoteAction = true;
-                        if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
+                        if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function' && isPlayerReady) {
                             if (Math.abs(ytPlayer.getCurrentTime() - targetTime) > 3.0) {
                                 ytPlayer.seekTo(targetTime, true);
                             }
