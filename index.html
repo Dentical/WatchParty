@@ -81,6 +81,8 @@
             }
         });
     </script>
+    <!-- YouTube IFrame API -->
+    <script src="https://www.youtube.com/iframe_api"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         body { 
@@ -203,22 +205,23 @@
             <div id="pane-video" class="lg:col-span-3 flex flex-col p-3 sm:p-4 overflow-y-auto space-y-4">
                 <div class="bg-cardBg rounded-xl border border-slate-800 overflow-hidden shadow-xl shrink-0 transition-colors">
                     <div class="relative aspect-video bg-black flex items-center justify-center" id="player-container">
-                        <!-- Надежный iframe проигрыватель без черных экранов -->
-                        <iframe id="youtube-iframe" class="w-full h-full absolute inset-0 border-0" src="" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+                        <div id="youtube-player" class="w-full h-full absolute inset-0"></div>
+                        <!-- Прозрачная накладка блокирует управление для участников, чтобы они не могли переключать паузу самостоятельно -->
+                        <div id="guest-player-blocker" class="absolute inset-0 z-10 hidden"></div>
                     </div>
                     <div id="host-controls-panel" class="p-3 sm:p-4 bg-slate-900/80 border-t border-slate-800 flex flex-col sm:flex-row gap-2.5 hidden">
                         <input type="text" id="video-url-input" placeholder="Вставьте ссылку на YouTube (например, https://youtu.be/...)..." class="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-red-500 text-slate-100">
                         <button onclick="addVideo()" class="bg-red-600 hover:bg-red-700 text-white font-medium px-5 py-2.5 rounded-xl text-xs sm:text-sm transition">Добавить</button>
                     </div>
                     <div id="guest-notice" class="p-3 bg-slate-900/80 border-t border-slate-800 text-center text-xs text-slate-400">
-                        Плейлистом и видео управляет Хост комнаты.
+                        Плейлистом и воспроизведением управляет строго Хост комнаты.
                     </div>
                 </div>
 
                 <div class="bg-cardBg rounded-xl border border-slate-800 p-4 flex-grow flex flex-col min-h-[180px] transition-colors">
                     <div class="flex items-center justify-between mb-3">
                         <h3 class="text-xs sm:text-sm font-semibold text-slate-300">Очередь воспроизведения (<span id="queue-count">0</span>/20)</h3>
-                        <span class="text-[10px] text-slate-500">YouTube Sync</span>
+                        <span class="text-[10px] text-slate-500">Strict Sync</span>
                     </div>
                     <div id="playlist-container" class="space-y-2 overflow-y-auto max-h-40 sm:max-h-52 flex-grow pr-1">
                         <p class="text-xs text-slate-500 text-center py-6">Плейлист пуст.</p>
@@ -278,8 +281,11 @@
         let currentUser = '';
         let currentRoomId = '';
         let isHost = false;
+        let ytPlayer = null;
+        let isPlayerReady = false;
         let currentPlaylist = [];
         let currentVideoIndex = 0;
+        let isSyncing = false;
         let unreadMessages = 0;
         let activeMobileTabName = 'video';
         let contactsList = JSON.parse(localStorage.getItem('user_contacts') || '[]');
@@ -363,6 +369,21 @@
             `).join('');
         }
 
+        function onYouTubeIframeAPIReady() {
+            ytPlayer = new YT.Player('youtube-player', {
+                height: '100%',
+                width: '100%',
+                videoId: 'jfKfPfyJRdk',
+                playerVars: { 'playsinline': 1, 'autoplay': 1, 'rel': 0 },
+                events: {
+                    'onReady': (event) => {
+                        isPlayerReady = true;
+                    },
+                    'onStateChange': onYTPlayerStateChange
+                }
+            });
+        }
+
         function parseYouTubeId(url) {
             let videoId = null;
             try {
@@ -383,12 +404,27 @@
             return (videoId && videoId.length === 11) ? videoId : null;
         }
 
-        function playYouTubeVideo(videoId, seekToTime = 0) {
-            const iframe = document.getElementById('youtube-iframe');
-            const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&start=${Math.floor(seekToTime)}&enablejsapi=1`;
-            if (iframe.src !== embedUrl) {
-                iframe.src = embedUrl;
+        function onYTPlayerStateChange(event) {
+            // Только хост управляет и записывает действия в базу
+            if (!isHost || isSyncing) return;
+
+            let action = 'pause';
+            if (event.data === YT.PlayerState.PLAYING) {
+                action = 'play';
+            } else if (event.data === YT.PlayerState.PAUSED) {
+                action = 'pause';
+            } else {
+                return;
             }
+
+            const currentTime = ytPlayer.getCurrentTime() || 0;
+            updatePlayerStateInFirebase(action, currentTime);
+        }
+
+        async function updatePlayerStateInFirebase(action, time) {
+            await window.dbRefs.update(window.dbRefs.ref(window.db, `rooms/${currentRoomId}/playerState`), {
+                action: action, time: time, serverTime: window.dbRefs.serverTimestamp()
+            });
         }
 
         async function createRoom() {
@@ -454,11 +490,13 @@
                 badge.innerText = "ХОСТ";
                 document.getElementById('host-controls-panel').classList.remove('hidden');
                 document.getElementById('guest-notice').classList.add('hidden');
+                document.getElementById('guest-player-blocker').classList.add('hidden');
             } else {
                 badge.className = "bg-blue-600 text-white text-[10px] font-bold px-2 py-1 rounded";
                 badge.innerText = "УЧАСТНИК";
                 document.getElementById('host-controls-panel').classList.add('hidden');
                 document.getElementById('guest-notice').classList.remove('hidden');
+                document.getElementById('guest-player-blocker').classList.remove('hidden'); // Блокируем клики для гостей
             }
 
             const roomRef = window.dbRefs.ref(window.db, 'rooms/' + currentRoomId);
@@ -472,17 +510,36 @@
                 }
                 if (data.currentIndex !== undefined) currentVideoIndex = data.currentIndex;
 
-                if (data.playerState && data.playlist && data.playlist[currentVideoIndex]) {
+                if (data.playerState && data.playlist && data.playlist[currentVideoIndex] && isPlayerReady) {
                     const videoItem = data.playlist[currentVideoIndex];
                     const state = data.playerState;
+
+                    // Вычисляем актуальное время с учетом прошедших секунд
                     let targetTime = state.time || 0;
                     if (state.action === 'play' && state.serverTime) {
                         const elapsed = (Date.now() - state.serverTime) / 1000;
                         if (elapsed > 0 && elapsed < 7200) targetTime += elapsed;
                     }
 
-                    playYouTubeVideo(videoItem.id, targetTime);
+                    isSyncing = true;
+                    const currentId = ytPlayer.getVideoData().video_id;
+
+                    if (currentId !== videoItem.id) {
+                        ytPlayer.loadVideoById({ videoId: videoItem.id, startSeconds: targetTime });
+                    } else {
+                        if (Math.abs(ytPlayer.getCurrentTime() - targetTime) > 2.0) {
+                            ytPlayer.seekTo(targetTime, true);
+                        }
+                        if (state.action === 'play') {
+                            ytPlayer.playVideo();
+                        } else {
+                            ytPlayer.pauseVideo();
+                        }
+                    }
+
+                    setTimeout(() => { isSyncing = false; }, 600);
                 }
+
                 if (data.users) updateUsersList(Object.values(data.users));
                 if (data.messages) renderChat(Object.values(data.messages));
             });
@@ -629,7 +686,7 @@
                 vPane.classList.remove('hidden');
                 cPane.classList.add('hidden');
                 cPane.classList.remove('flex');
-                bVid.className = "flex-1 py-2.5 text-center text-red-500 border-b-2 border-red-500 font-semibold";
+                bVid.className = "flex-1 py.5 text-center text-red-500 border-b-2 border-red-500 font-semibold";
                 bChat.className = "flex-1 py-2.5 text-center text-slate-400 relative";
             } else {
                 vPane.classList.add('hidden');
